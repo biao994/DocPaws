@@ -1,0 +1,20 @@
+{"id": "q01", "category": "in_kb", "question": "星河科技是哪一年成立的？", "must_contain": ["2018"], "expect_reject": false}
+{"id": "q02", "category": "in_kb", "question": "星河科技总部在哪里？", "must_contain": ["杭州"], "expect_reject": false}
+{"id": "q03", "category": "in_kb", "question": "星河科技的主营业务是什么？", "must_contain": ["知识库"], "expect_reject": false}
+{"id": "q04", "category": "in_kb", "question": "星河科技的核心产品叫什么？", "must_contain": ["DocPaws"], "expect_reject": false}
+{"id": "q05", "category": "in_kb", "question": "星河科技大约有多少员工？", "must_contain": ["120"], "expect_reject": false}
+{"id": "q06", "category": "in_kb", "question": "星河科技的价值观里强调什么？", "must_contain": ["不编造"], "expect_reject": false}
+{"id": "q07", "category": "in_kb", "question": "星河科技对外联系邮箱是什么？", "must_contain": ["contact@xinghe-tech"], "expect_reject": false}
+{"id": "q08", "category": "in_kb", "question": "星河科技哪一年完成 A 轮融资？", "must_contain": ["2023"], "expect_reject": false}
+{"id": "q09", "category": "in_kb", "question": "DocPaws 支持什么格式的文件上传？", "must_contain": ["PDF"], "expect_reject": false}
+{"id": "q10", "category": "in_kb", "question": "DocPaws 使用什么做向量检索？", "must_contain": ["FAISS"], "expect_reject": false}
+{"id": "q11", "category": "in_kb", "question": "DocPaws 对话是否支持流式输出？", "must_contain": ["SSE"], "expect_reject": false}
+{"id": "q12", "category": "in_kb", "question": "DocPaws 有哪两种对话模式？", "must_contain": ["fast", "deep"], "expect_reject": false}
+{"id": "q13", "category": "in_kb", "question": "DocPaws 后端框架是什么？", "must_contain": ["FastAPI"], "expect_reject": false}
+{"id": "q14", "category": "in_kb", "question": "索引失败时文档状态会怎样？", "must_contain": ["failed"], "expect_reject": false}
+{"id": "q15", "category": "in_kb", "question": "DocPaws 向量索引目录通过什么环境变量配置？", "must_contain": ["INDEX_DIR"], "expect_reject": false}
+{"id": "q16", "category": "in_kb", "question": "DocPaws 默认使用什么数据库？", "must_contain": ["SQLite"], "expect_reject": false}
+{"id": "q17", "category": "out_of_kb", "question": "苹果公司2025年营收是多少？", "must_contain": ["无法", "未检索", "没有", "并未"], "expect_reject": true}
+{"id": "q18", "category": "out_of_kb", "question": "比特币今天的价格是多少？", "must_contain": ["无法", "未检索", "没有", "并未"], "expect_reject": true}
+{"id": "q19", "category": "out_of_kb", "question": "马斯克生日是哪天？", "must_contain": ["无法", "未检索", "没有", "并未"], "expect_reject": true}
+{"id": "q20", "category": "in_kb", "question": "DocPaws 会话认证方式是什么？", "must_contain": ["Cookie"], "expect_reject": false}

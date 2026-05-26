@@ -1,0 +1,42 @@
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/dist-ssr/
+
+# Secrets & local env
+.env
+backend/.env
+*.local
+
+# Runtime data (see backend/data/)
+backend/data/
+
+# Eval outputs (fixtures stay tracked)
+eval/.eval_state.json
+eval/results/*.csv
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/playwright/.cache/
+
+# Legacy / local index paths
+faiss_index/
+backend/faiss_index/

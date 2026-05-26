@@ -1,0 +1,4 @@
+.eval_state.json
+fixtures/pdfs/
+__pycache__/
+*.pyc
