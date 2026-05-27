@@ -207,9 +207,7 @@ def create_kb_index_artifact(
             doc.indexed_content_hash = chash
             doc.indexed_artifact_id = artifact.id
             doc.indexed_at = now
-            if doc.status == "indexing":
-                doc.status = "ready"
-            elif doc.status == "draft" and n_chunks > 0:
+            if doc.status == "indexing" or doc.status == "draft":
                 doc.status = "ready"
             session.add(doc)
 
