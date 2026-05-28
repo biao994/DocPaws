@@ -111,7 +111,6 @@ def record_kb_diff_on_job(
     job = session.get(IndexJob, job_id)
     if job:
         job.diff_summary = summary
-        job.progress = 15
         session.add(job)
     return diff, new_map
 
