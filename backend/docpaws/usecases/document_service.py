@@ -15,7 +15,7 @@ from docpaws.api.schemas.documents import DocumentData, DocumentDeleteData, Uplo
 from docpaws.domain.models.document import Document, FileObject, KbFile
 from docpaws.errors import AppError
 from docpaws.infra.storage.local_fs import storage
-from docpaws.infra.storage.s3_minio import delete_object, head_object, upload_file
+from docpaws.infra.storage.s3_minio import delete_object, head_meta, head_object, upload_file
 from docpaws.settings import settings
 
 
@@ -56,6 +56,63 @@ def _safe_filename(name: str) -> str:
 def _build_object_key(*, user_id: str, kb_id: str, file_object_id: str, raw_filename: str) -> str:
     safe = _safe_filename(raw_filename)
     return f"u/{user_id}/kb/{kb_id}/doc/{file_object_id}/{safe}"
+
+
+def _object_needs_reupload(*, object_key: str | None, size_bytes: int | None) -> bool:
+    """
+    去重复用 FileObject 时，判断是否需要用本次上传文件补传对象存储。
+
+    触发条件：
+    - object_key 为空
+    - 对象不存在
+    - DB size_bytes 为 0/空
+    - 对象存在但 content_length 为 0（防止空 PDF 进入索引）
+    """
+    key = (object_key or "").strip()
+    if not key:
+        return True
+    if not head_object(key):
+        return True
+    if (size_bytes or 0) <= 0:
+        return True
+    try:
+        meta = head_meta(key)
+        if int(meta.get("content_length") or 0) <= 0:
+            return True
+    except Exception:
+        # 元信息读取失败：保守起见补传，避免坏对象继续传播
+        return True
+    return False
+
+
+def _ensure_file_object_uploaded(
+    *,
+    session: Session,
+    file_object: FileObject,
+    temp_path: str,
+    content_type: str,
+    user_id: str,
+    kb_id: str,
+    raw_filename: str,
+    size_bytes: int,
+) -> None:
+    """确保 FileObject 对应对象在存储中非空；必要时为其分配 object_key 并补传。"""
+    if not _object_needs_reupload(object_key=file_object.object_key, size_bytes=file_object.size_bytes):
+        return
+
+    key = (file_object.object_key or "").strip()
+    if not key:
+        key = _build_object_key(
+            user_id=user_id,
+            kb_id=kb_id,
+            file_object_id=file_object.id,
+            raw_filename=raw_filename,
+        )
+        file_object.object_key = key
+
+    upload_file(temp_path, key, content_type=content_type)
+    file_object.size_bytes = size_bytes
+    session.add(file_object)
 
 
 def _folder_and_filename_from_relative(rel: str) -> tuple[Optional[str], str]:
@@ -139,10 +196,17 @@ async def _ingest_one_pdf_create_no_commit(
             file_object = existing_file
             is_duplicate = True
 
-            if existing_file.object_key and not head_object(existing_file.object_key):
-                upload_file(temp_path, existing_file.object_key, content_type=file.content_type or "application/pdf")
-                existing_file.size_bytes = size
-                session.add(existing_file)
+            if _object_needs_reupload(object_key=existing_file.object_key, size_bytes=existing_file.size_bytes):
+                _ensure_file_object_uploaded(
+                    session=session,
+                    file_object=existing_file,
+                    temp_path=temp_path,
+                    content_type=file.content_type or "application/pdf",
+                    user_id=user_id,
+                    kb_id=kb_id,
+                    raw_filename=raw_filename,
+                    size_bytes=size,
+                )
                 temp_path = ""
         else:
             file_object = FileObject(
@@ -331,11 +395,17 @@ async def upload_document(
             file_object = existing_file
             is_duplicate = True
 
-            # 若对象缺失则修复：用当前上传的临时文件重新上传到同一个 object_key
-            if existing_file.object_key and not head_object(existing_file.object_key):
-                upload_file(temp_path, existing_file.object_key, content_type=file.content_type or "application/pdf")
-                existing_file.size_bytes = size
-                session.add(existing_file)
+            if _object_needs_reupload(object_key=existing_file.object_key, size_bytes=existing_file.size_bytes):
+                _ensure_file_object_uploaded(
+                    session=session,
+                    file_object=existing_file,
+                    temp_path=temp_path,
+                    content_type=file.content_type or "application/pdf",
+                    user_id=user_id,
+                    kb_id=kb_id,
+                    raw_filename=raw_filename,
+                    size_bytes=size,
+                )
                 temp_path = ""
         else:
             file_object = FileObject(

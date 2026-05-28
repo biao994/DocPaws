@@ -156,6 +156,8 @@ def _parse_and_chunk_document(document_id: str, object_key: str, original_filena
 
     temp_pdf_path = download_to_temp(object_key)
     try:
+        if os.path.getsize(temp_pdf_path) <= 0:
+            raise ValueError(f"empty pdf after download: {object_key}")
         docs = load_pdf_documents(temp_pdf_path, source_name=original_filename)
         chunks = vsm.split_documents(docs)
     finally:
