@@ -3,10 +3,12 @@ import {
   buildRestoreTaskFromDocument,
   canCancelUploadTask,
   displayFileName,
+  displayTaskPercent,
+  INDEX_FAILURE_MESSAGE,
+  uploadTaskStatusLabel,
   isPendingUploadDocument,
   isReadyDocument,
   mergeRestoreUploadTasks,
-  overallUploadPercent,
   uploadProgressStatusLabel,
 } from './kbUploadProgress'
 
@@ -28,14 +30,15 @@ describe('isPendingUploadDocument', () => {
 })
 
 describe('buildRestoreTaskFromDocument', () => {
-  it('failed doc becomes failed task with 异常', () => {
+  it('failed doc becomes failed task without fake 100% index', () => {
     const t = buildRestoreTaskFromDocument(
       { id: 'd1', title: 'a.pdf', status: 'failed' },
       null,
     )
     expect(t.status).toBe('failed')
-    expect(t.errorMessage).toBe('异常')
+    expect(t.errorMessage).toBe(INDEX_FAILURE_MESSAGE)
     expect(t.uploadProgress).toBe(100)
+    expect(t.indexProgress).toBe(0)
   })
 
   it('indexing doc uses job progress', () => {
@@ -47,6 +50,15 @@ describe('buildRestoreTaskFromDocument', () => {
     expect(t.jobId).toBe('j1')
     expect(t.indexProgress).toBe(42)
     expect(t.fileName).toBe('b.pdf')
+  })
+
+  it('indexing doc with failed job stays indexing', () => {
+    const t = buildRestoreTaskFromDocument(
+      { id: 'd3', title: 'c.pdf', status: 'indexing' },
+      { id: 'j2', status: 'failed', progress: 80 },
+    )
+    expect(t.status).toBe('indexing')
+    expect(t.indexProgress).toBe(80)
   })
 })
 
@@ -67,17 +79,53 @@ describe('mergeRestoreUploadTasks', () => {
   })
 })
 
-describe('overallUploadPercent', () => {
-  it('weights upload 70% and index 30%', () => {
-    expect(overallUploadPercent(100, 100)).toBe(100)
-    expect(overallUploadPercent(100, 0)).toBe(70)
-    expect(overallUploadPercent(0, 100)).toBe(30)
+describe('displayTaskPercent', () => {
+  it('uses upload progress while uploading', () => {
+    expect(
+      displayTaskPercent({ status: 'uploading', uploadProgress: 55, indexProgress: 0 }),
+    ).toBe(55)
+  })
+
+  it('uses index progress after upload', () => {
+    expect(
+      displayTaskPercent({ status: 'indexing', uploadProgress: 100, indexProgress: 42 }),
+    ).toBe(42)
+  })
+
+  it('uses index progress when job already running but status not flipped', () => {
+    expect(
+      displayTaskPercent({
+        status: 'uploading',
+        uploadProgress: 0,
+        indexProgress: 50,
+        jobId: 'j1',
+      }),
+    ).toBe(50)
+  })
+
+  it('caps failed at 99 when index was 100', () => {
+    expect(
+      displayTaskPercent({ status: 'failed', uploadProgress: 100, indexProgress: 100 }),
+    ).toBe(99)
+  })
+})
+
+describe('uploadTaskStatusLabel', () => {
+  it('shows 处理中 when index progress is available', () => {
+    expect(
+      uploadTaskStatusLabel({
+        status: 'uploading',
+        uploadProgress: 0,
+        indexProgress: 50,
+        jobId: 'j1',
+      }),
+    ).toBe('处理中')
   })
 })
 
 describe('uploadProgressStatusLabel', () => {
-  it('failed shows 异常', () => {
-    expect(uploadProgressStatusLabel('failed')).toBe('异常')
+  it('failed shows 处理失败', () => {
+    expect(uploadProgressStatusLabel('failed')).toBe(INDEX_FAILURE_MESSAGE)
   })
 })
 

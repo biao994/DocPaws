@@ -1,6 +1,12 @@
 import { ref, type Ref, onScopeDispose } from 'vue'
 import axios, { isAxiosError, type AxiosProgressEvent } from 'axios'
-import { getDocumentIndexJob, getIndexJob } from '../api/indexJobs'
+import {
+  getDocumentIndexJob,
+  getIndexJob,
+  parseIndexJobProgress,
+  unwrapIndexJobPayload,
+  type IndexJobSummary,
+} from '../api/indexJobs'
 import {
   deleteDocument,
   getDocument,
@@ -11,6 +17,8 @@ import {
 import { API_BASE_URL, withApiBase } from '../api/config'
 import {
   buildRestoreTaskFromDocument,
+  calcHttpUploadPercent,
+  INDEX_FAILURE_MESSAGE,
   isPendingUploadDocument,
   mergeRestoreUploadTasks,
 } from '../utils/kbUploadProgress'
@@ -194,79 +202,138 @@ export function useKbPersonalUpload(opts: {
     dismissSucceededTask(task)
   }
 
-  /** 以文档状态为准收尾，避免「Job failed 但文档已 ready」误报 */
-  const reconcileTaskWithDocument = async (task: UploadTask): Promise<boolean> => {
-    if (!task.documentId) return false
+  const markTaskFailed = (task: UploadTask, message = INDEX_FAILURE_MESSAGE) => {
+    task.status = 'failed'
+    task.errorMessage = message
+    scheduleReloadDocuments()
+  }
+
+  type DocFinalizeOutcome = 'ready' | 'failed' | 'pending'
+
+  /** 以文档状态为准收尾，避免「Job 成功但文档 failed」等误报 */
+  const finalizeFromDocument = async (task: UploadTask): Promise<DocFinalizeOutcome> => {
+    if (!task.documentId) return 'pending'
     try {
       const res = await getDocument(task.documentId)
       const doc = res.data?.data
       const st = doc?.status
       if (st === 'ready') {
         markTaskSucceeded(task)
-        return true
+        return 'ready'
       }
       if (st === 'failed') {
-        task.status = 'failed'
-        task.indexProgress = 100
-        task.errorMessage = '异常'
-        return true
+        markTaskFailed(task)
+        return 'failed'
       }
     } catch {
       // ignore
     }
+    return 'pending'
+  }
+
+  const fetchIndexJobForTask = async (task: UploadTask): Promise<IndexJobSummary | null> => {
+    try {
+      if (task.jobId) {
+        const res = await getIndexJob(task.jobId)
+        return unwrapIndexJobPayload(res.data) ?? null
+      }
+      if (task.documentId) {
+        const res = await getDocumentIndexJob(task.documentId)
+        const job = unwrapIndexJobPayload(res.data)
+        if (job?.id) task.jobId = job.id
+        return job
+      }
+    } catch {
+      // ignore
+    }
+    return null
+  }
+
+  const enterIndexProcessingPhase = (task: UploadTask, progress: number) => {
+    if (task.uploadProgress < 100) task.uploadProgress = 100
+    task.indexProgress = progress
+    if (task.status === 'uploading') task.status = 'indexing'
+  }
+
+  const isActiveIndexPollTask = (t: UploadTask) => {
+    if (t.status === 'indexing') return !!t.jobId || !!t.documentId
+    if (t.status === 'uploading') {
+      return !!t.jobId || !!t.documentId || t.uploadProgress >= 100 || t.indexProgress > 0
+    }
     return false
   }
 
+  const applyIndexJobSnapshot = async (task: UploadTask, job: IndexJobSummary) => {
+    const st = job.status
+    const progress = parseIndexJobProgress(job.progress)
+
+    if (st === 'failed') {
+      const errMsg = job.error_message
+      if (isStaleIndexJobError(errMsg)) {
+        task.errorMessage = undefined
+        const outcome = await finalizeFromDocument(task)
+        if (outcome !== 'pending') return
+        return
+      }
+      const outcome = await finalizeFromDocument(task)
+      if (outcome !== 'pending') return
+      markTaskFailed(task)
+      return
+    }
+
+    if (st === 'succeeded') {
+      const outcome = await finalizeFromDocument(task)
+      if (outcome === 'ready' || outcome === 'failed') return
+      enterIndexProcessingPhase(task, progress)
+      return
+    }
+
+    // queued / running：跟随后端 job.progress
+    enterIndexProcessingPhase(task, progress)
+  }
+
+  const pollIndexJobsOnce = async () => {
+    if (indexPollingInFlight) return
+    indexPollingInFlight = true
+    try {
+      const activeTasks = uploadTasks.value.filter(isActiveIndexPollTask)
+      if (activeTasks.length === 0) {
+        if (indexPollingTimer != null) {
+          window.clearInterval(indexPollingTimer)
+          indexPollingTimer = null
+        }
+        return
+      }
+
+      for (const t of activeTasks) {
+        if (!t.jobId && !t.documentId) continue
+
+        const job = await fetchIndexJobForTask(t)
+        if (job) {
+          await applyIndexJobSnapshot(t, job)
+          continue
+        }
+
+        if (t.documentId) {
+          const outcome = await finalizeFromDocument(t)
+          if (outcome !== 'pending') continue
+        }
+      }
+    } finally {
+      indexPollingInFlight = false
+    }
+  }
+
   const ensureIndexPolling = () => {
-    const hasActive = uploadTasks.value.some((t) => t.status === 'indexing' && !!t.jobId)
+    const hasActive = uploadTasks.value.some(isActiveIndexPollTask)
     if (!hasActive) return
+
+    void pollIndexJobsOnce()
+
     if (indexPollingTimer != null) return
 
-    indexPollingTimer = window.setInterval(async () => {
-      if (indexPollingInFlight) return
-      indexPollingInFlight = true
-      try {
-        const activeTasks = uploadTasks.value.filter((t) => t.status === 'indexing' && !!t.jobId)
-        if (activeTasks.length === 0) {
-          if (indexPollingTimer != null) window.clearInterval(indexPollingTimer)
-          indexPollingTimer = null
-          return
-        }
-
-        for (const t of activeTasks) {
-          if (!t.jobId) {
-            if (t.documentId && (await reconcileTaskWithDocument(t))) continue
-            continue
-          }
-          try {
-            const res = await getIndexJob(t.jobId)
-            const job = res.data?.data
-            const st = job?.status as string | undefined
-            const progress = typeof job?.progress === 'number' ? job.progress : 0
-
-            if (st === 'failed') {
-              const errMsg = job?.error_message
-              if (isStaleIndexJobError(errMsg)) {
-                t.errorMessage = undefined
-                if (await reconcileTaskWithDocument(t)) continue
-                continue
-              }
-              if (await reconcileTaskWithDocument(t)) continue
-              t.status = 'failed'
-              t.indexProgress = 100
-              t.errorMessage = '异常'
-            } else if (st === 'succeeded') {
-              markTaskSucceeded(t)
-            } else {
-              t.indexProgress = progress
-            }
-          } catch {
-            // ignore
-          }
-        }
-      } finally {
-        indexPollingInFlight = false
-      }
+    indexPollingTimer = window.setInterval(() => {
+      void pollIndexJobsOnce()
     }, 1000)
   }
 
@@ -314,9 +381,7 @@ export function useKbPersonalUpload(opts: {
 
       const handleDirectProgress = onUploadProgress
         ? (evt: AxiosProgressEvent) => {
-            const total = evt.total || 0
-            if (total <= 0) return
-            onUploadProgress(Math.round((evt.loaded / total) * 100))
+            onUploadProgress(calcHttpUploadPercent(evt, file.size))
           }
         : undefined
 
@@ -375,6 +440,10 @@ export function useKbPersonalUpload(opts: {
         task.idempotencyKey,
         (p) => {
           task.uploadProgress = p
+          if (p >= 100 && task.status === 'uploading') {
+            task.status = 'indexing'
+            ensureIndexPolling()
+          }
         },
         abortSignal,
       )
@@ -384,10 +453,10 @@ export function useKbPersonalUpload(opts: {
       const payload = res.data?.data
       task.documentId = payload?.document_id
       task.jobId = payload?.job_id
-      task.indexProgress = 0
       task.status = 'indexing'
 
       ensureIndexPolling()
+      await pollIndexJobsOnce()
       return payload
     } catch (e) {
       removeUploadAbortController(task.id)
@@ -481,11 +550,13 @@ export function useKbPersonalUpload(opts: {
         throw proxyError
       }
       console.warn('[upload] batch proxy failed, retry direct api base:', API_BASE_URL, proxyError)
+      let batchBytes = 0
+      for (const v of formData.values()) {
+        if (v instanceof File) batchBytes += v.size
+      }
       const handleDirectProgress = onUploadProgress
         ? (evt: AxiosProgressEvent) => {
-            const total = evt.total || 0
-            if (total <= 0) return
-            onUploadProgress(Math.round((evt.loaded / total) * 100))
+            onUploadProgress(calcHttpUploadPercent(evt, batchBytes))
           }
         : undefined
       return await axios.post(
@@ -585,16 +656,16 @@ export function useKbPersonalUpload(opts: {
         items?: Array<{ document_id?: string }>
       }
 
-      const applyBatchResultToTask = (res: { data?: { data?: BatchPayload } }) => {
+      const applyBatchResultToTask = async (res: { data?: { data?: BatchPayload } }) => {
         task.uploadProgress = 100
         const payload = res.data?.data
         task.jobId = payload?.job_id
         const firstId = payload?.items?.[0]?.document_id
         task.documentId = firstId
-        task.indexProgress = 0
         if (payload?.job_id) {
           task.status = 'indexing'
           ensureIndexPolling()
+          await pollIndexJobsOnce()
         } else {
           markTaskSucceeded(task)
         }
@@ -629,9 +700,13 @@ export function useKbPersonalUpload(opts: {
               batchParams,
               (p) => {
                 task.uploadProgress = p
+                if (p >= 100 && task.status === 'uploading') {
+                  task.status = 'indexing'
+                  ensureIndexPolling()
+                }
               },
             )
-            applyBatchResultToTask(res)
+            await applyBatchResultToTask(res)
             break folderLoop
           } catch (error) {
             if (!isNameConflictError(error)) {
@@ -734,7 +809,7 @@ export function useKbPersonalUpload(opts: {
       }
     }
     uploadTasks.value = uploadTasks.value.filter((t) => t.id !== task.id)
-    const hasActive = uploadTasks.value.some((t) => t.status === 'indexing' && !!t.jobId)
+    const hasActive = uploadTasks.value.some(isActiveIndexPollTask)
     if (!hasActive && indexPollingTimer != null) {
       window.clearInterval(indexPollingTimer)
       indexPollingTimer = null

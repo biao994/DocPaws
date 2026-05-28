@@ -40,10 +40,10 @@
 
         <div class="upload-progress-status">
           <span :class="{ 'upload-progress-status--error': t.status === 'failed' }">
-            {{ statusLabel(t.status) }}
+            {{ taskStatusLabel(t) }}
           </span>
           <span
-            v-if="t.status === 'failed' && t.errorMessage"
+            v-if="showTaskErrorDetail(t)"
             class="upload-progress-error"
             :title="t.errorMessage"
           >
@@ -76,8 +76,9 @@
 import { ref } from 'vue'
 import {
   canCancelUploadTask,
-  overallUploadPercent,
-  uploadProgressStatusLabel,
+  displayTaskPercent,
+  INDEX_FAILURE_MESSAGE,
+  uploadTaskStatusLabel,
 } from '../utils/kbUploadProgress'
 
 type UploadProgressTask = {
@@ -86,6 +87,8 @@ type UploadProgressTask = {
   uploadProgress: number
   indexProgress: number
   status: 'uploading' | 'indexing' | 'succeeded' | 'failed'
+  jobId?: string
+  documentId?: string
   errorMessage?: string
 }
 
@@ -119,10 +122,15 @@ const pickCreateFolder = () => {
 }
 
 const canCancel = canCancelUploadTask
-const statusLabel = uploadProgressStatusLabel
+const taskStatusLabel = uploadTaskStatusLabel
 
 function overallPercent(t: UploadProgressTask) {
-  return overallUploadPercent(t.uploadProgress, t.indexProgress)
+  return displayTaskPercent(t)
+}
+
+function showTaskErrorDetail(t: UploadProgressTask): boolean {
+  if (t.status !== 'failed' || !t.errorMessage) return false
+  return t.errorMessage !== INDEX_FAILURE_MESSAGE
 }
 </script>
 

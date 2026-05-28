@@ -1,5 +1,14 @@
 import type { AxiosProgressEvent, AxiosResponse } from 'axios'
+import { calcHttpUploadPercent } from '../utils/kbUploadProgress'
 import { http } from './http'
+
+function formDataUploadBytes(formData: FormData): number {
+  let sum = 0
+  for (const value of formData.values()) {
+    if (value instanceof File) sum += value.size
+  }
+  return sum
+}
 
 export type DocumentSummary = {
   id: string
@@ -41,12 +50,10 @@ export async function uploadDocument(
     signal?: AbortSignal
   },
 ) {
+  const fileSize = formDataUploadBytes(formData)
   const onUploadProgress = opts.onUploadProgress
     ? (evt: AxiosProgressEvent) => {
-        const total = evt.total ?? 0
-        if (total <= 0) return
-        const percent = Math.round(((evt.loaded ?? 0) / total) * 100)
-        opts.onUploadProgress?.(percent)
+        opts.onUploadProgress?.(calcHttpUploadPercent(evt, fileSize))
       }
     : undefined
 
@@ -63,12 +70,10 @@ export async function uploadDocumentsBatch(
   formData: FormData,
   opts?: { params?: Record<string, string>; onUploadProgress?: (pct: number) => void },
 ) {
+  const fileSize = formDataUploadBytes(formData)
   const onUploadProgress = opts?.onUploadProgress
     ? (evt: AxiosProgressEvent) => {
-        const total = evt.total ?? 0
-        if (total <= 0) return
-        const percent = Math.round(((evt.loaded ?? 0) / total) * 100)
-        opts?.onUploadProgress?.(percent)
+        opts?.onUploadProgress?.(calcHttpUploadPercent(evt, fileSize))
       }
     : undefined
 
