@@ -3,6 +3,7 @@
 """
 import json
 
+from botocore.exceptions import ClientError
 from sqlmodel import Session
 from fastapi import APIRouter, Request, Depends, Query, File, UploadFile, BackgroundTasks, status, Form
 from fastapi.responses import StreamingResponse
@@ -18,6 +19,22 @@ from docpaws.errors import AppError
 from docpaws.infra.storage.s3_minio import head_meta, stream_get
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
+
+
+def _is_object_not_found_error(err: Exception) -> bool:
+    if not isinstance(err, ClientError):
+        return False
+    code = str(err.response.get("Error", {}).get("Code", ""))
+    return code in {"404", "NoSuchKey", "NotFound"}
+
+
+def _raise_file_not_found(*, object_key: str, document_id: str) -> None:
+    raise AppError(
+        error_code=ErrorCode.FILE_NOT_FOUND,
+        message="file not found",
+        status_code=get_status_code(ErrorCode.FILE_NOT_FOUND),
+        details={"document_id": document_id, "object_key": object_key},
+    )
 
 
 @router.get("/knowledge-bases/{kb_id}/documents")
@@ -76,8 +93,15 @@ def api_get_document_file(
 
     object_key, filename = svc.get_document_file(document_id=document_id)
     range_req = request.headers.get("range")
-    base_meta = head_meta(object_key)
+    try:
+        base_meta = head_meta(object_key)
+    except Exception as e:
+        if _is_object_not_found_error(e):
+            _raise_file_not_found(object_key=object_key, document_id=document_id)
+        raise
     total = base_meta.get("content_length")
+    if total is None or int(total) <= 0:
+        _raise_file_not_found(object_key=object_key, document_id=document_id)
     ctype = base_meta.get("content_type") or "application/pdf"
 
     headers = {
@@ -90,7 +114,12 @@ def api_get_document_file(
 
     # 无 Range：直接整文件返回（200）
     if not range_req:
-        it, meta = stream_get(object_key)
+        try:
+            it, meta = stream_get(object_key)
+        except Exception as e:
+            if _is_object_not_found_error(e):
+                _raise_file_not_found(object_key=object_key, document_id=document_id)
+            raise
         if meta.get("content_length") is not None:
             headers["Content-Length"] = str(meta["content_length"])
         return StreamingResponse(it, media_type=ctype, headers=headers)
@@ -132,7 +161,12 @@ def api_get_document_file(
         return StreamingResponse(iter(()), status_code=416, headers=headers)
 
     range_header = f"bytes={start}-{end}"
-    it, meta = stream_get(object_key, range_header=range_header)
+    try:
+        it, meta = stream_get(object_key, range_header=range_header)
+    except Exception as e:
+        if _is_object_not_found_error(e):
+            _raise_file_not_found(object_key=object_key, document_id=document_id)
+        raise
 
     headers["Content-Range"] = f"bytes {start}-{end}/{total}"
     headers["Content-Length"] = str(end - start + 1)
