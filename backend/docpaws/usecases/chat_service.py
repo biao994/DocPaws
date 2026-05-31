@@ -1,4 +1,4 @@
-"""
+﻿"""
 对话问答业务编排（Agent + 工具）
 
 流程：
@@ -362,6 +362,20 @@ def build_prompt(
     return prompt.format(history_text=history_text, context=context, question=question)
 
 
+def _usage_error_code_from_event(payload: dict) -> str | None:
+    """从 SSE 事件推断运营记录用的 error_code（成功路径返回 None）。"""
+    ptype = payload.get("type")
+    if ptype == "error":
+        return str(payload.get("code") or ErrorCode.INTERNAL_ERROR)
+    if ptype == "answer_chunk" and payload.get("finished"):
+        content = (payload.get("content") or "").strip()
+        if content == INSUFFICIENT_RETRIEVAL_MSG:
+            return "INSUFFICIENT_RETRIEVAL"
+        if content == "索引未就绪":
+            return ErrorCode.INDEX_NOT_READY
+    return None
+
+
 async def _stream_answer_impl(
     session: Session,
     *,
@@ -375,15 +389,66 @@ async def _stream_answer_impl(
     folder_id: str | None = None,
     chat_mode: ChatMode = "fast",
 ) -> AsyncGenerator[dict, None]:
+    """包装流式问答：结束时写入 UsageRecord（一期：耗时 + 成败）。"""
+    cfg = get_default_config()
+    model_name = resolve_chat_model(cfg.get("model"))
+    t0 = time.perf_counter()
+    usage_error: str | None = None
+    try:
+        async for payload in _stream_answer_events(
+            session,
+            kb_id=kb_id,
+            question=question,
+            conversation_id=conversation_id,
+            request_id=request_id,
+            user_id=user_id,
+            cache_redis=cache_redis,
+            document_id=document_id,
+            folder_id=folder_id,
+            chat_mode=chat_mode,
+            model_name=model_name,
+        ):
+            ec = _usage_error_code_from_event(payload)
+            if ec:
+                usage_error = ec
+            yield payload
+    finally:
+        from docpaws.infra.repos.usage_repo import record_chat_stream_usage
+
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        record_chat_stream_usage(
+            session,
+            request_id=request_id,
+            kb_id=kb_id,
+            user_id=user_id,
+            chat_mode=chat_mode,
+            model_name=model_name,
+            latency_ms=latency_ms,
+            error_code=usage_error,
+        )
+
+
+async def _stream_answer_events(
+    session: Session,
+    *,
+    kb_id: str,
+    question: str,
+    conversation_id: str | None,
+    request_id: str,
+    user_id: str,
+    cache_redis: redis.Redis | None,
+    document_id: str | None = None,
+    folder_id: str | None = None,
+    chat_mode: ChatMode = "fast",
+    model_name: str,
+) -> AsyncGenerator[dict, None]:
     """
     SSE 流式问答生成器（实现体，由 ChatService.stream_answer 转发）
 
     Yields:
         SSE payload dicts（type/content/finished/message_id/citations）
     """
-    cfg = get_default_config()
-    model_name = resolve_chat_model(cfg.get("model"))
-    search_k = int(cfg.get("search_k", 5) or 5)
+    search_k = int(get_default_config().get("search_k", 5) or 5)
 
     # 1. 知识库归属
     try:

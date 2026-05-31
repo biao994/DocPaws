@@ -76,21 +76,3 @@ class Answer(SQLModel, table=True):
     citations: str = Field(default="[]", sa_column=Column(JSON))
     model_name: str = Field(default="deepseek-response")
     created_at: datetime = Field(default_factory=datetime.utcnow)
-
-
-# ── 运营表族 ──
-
-class UsageRecord(SQLModel, table=True):
-    """用量记录表"""
-    id: str = Field(default_factory=_uuid, primary_key=True)
-    request_id: str = Field(index=True)
-    kb_id: str | None = Field(default=None, index=True)
-    user_id: str | None = Field(default=None, index=True)
-    action: str = Field()
-    latency_ms: int = Field()
-    tokens_in: int = Field()
-    tokens_out: int = Field()
-    cost: float = Field()
-    model_name: str = Field()
-    error_code: str | None = Field(default=None)
-    created_at: datetime = Field(default_factory=datetime.utcnow)

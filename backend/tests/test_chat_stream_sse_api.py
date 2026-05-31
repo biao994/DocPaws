@@ -1,4 +1,4 @@
-import json
+﻿import json
 
 
 class _FakeDoc:
@@ -96,4 +96,15 @@ def test_chat_stream_sse_returns_ids(auth_client, db_session, monkeypatch, tmp_p
     assert last_payload.get("conversation_id"), "SSE finished payload must include conversation_id"
     assert last_payload.get("message_id"), "SSE finished payload must include message_id"
     assert last_payload.get("answer_id"), "SSE finished payload must include answer_id"
+
+    from docpaws.infra.repos.usage_repo import get_usage_by_request_id
+
+    req_id = last_payload.get("request_id")
+    assert req_id, "SSE finished payload must include request_id"
+    usage = get_usage_by_request_id(db_session, req_id)
+    assert usage is not None
+    assert usage.action == "chat.stream.fast"
+    assert usage.latency_ms >= 0
+    assert usage.kb_id == kb_id
+    assert usage.error_code is None
 

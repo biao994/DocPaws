@@ -11,8 +11,8 @@ from docpaws.domain.models.index import (
     IndexArtifactManifest,
     RetrievalRun,
     Answer,
-    UsageRecord,
 )
+from docpaws.domain.models.ops import UsageRecord
 from docpaws.domain.models.chat import Conversation, Message, Feedback
 
 __all__ = [
