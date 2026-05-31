@@ -19,6 +19,12 @@ export function applyChatStreamToAssistant(
     return
   }
 
+  // 深度模式：工具执行进度也写入思考区
+  if (ev === 'tool_running') {
+    msg.thinking = (msg.thinking ?? '') + String(chunk)
+    return
+  }
+
   if (ev === 'answer_chunk' || ev === undefined || ev === '') {
     msg.content += String(chunk)
   }

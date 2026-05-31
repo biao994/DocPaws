@@ -15,7 +15,10 @@
     <div class="reader-chat">
       <div class="reader-chat-header">对话</div>
       <div class="reader-chat-body">
-        <ChatMessageList :messages="messages" />
+        <ChatMessageList
+          :messages="messages"
+          :pending-assistant-id="pendingAssistantId"
+        />
       </div>
       <div class="reader-chat-footer">
         <ComposerBox
@@ -45,6 +48,7 @@ defineProps<{
   documentTitle?: string
   messages: ChatModalMessage[]
   isStreaming: boolean
+  pendingAssistantId?: string | null
   composerPlaceholder: string
 }>()
 

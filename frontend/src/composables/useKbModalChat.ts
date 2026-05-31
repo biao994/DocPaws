@@ -57,6 +57,7 @@ export function useKbModalChat(opts: {
   const modalMessages = ref<KbModalMessage[]>([])
   const modalInput = ref('')
   const modalIsStreaming = ref(false)
+  const modalStreamingAssistantId = ref<string | null>(null)
   let modalStreamCtrl: AbortController | null = null
   const modalConversationId = ref<string | null>(null)
   const modalConversations = ref<KbConversationSummary[]>([])
@@ -274,6 +275,7 @@ export function useKbModalChat(opts: {
       { id: aiId, role: 'assistant', content: '' },
     )
     modalIsStreaming.value = true
+    modalStreamingAssistantId.value = aiId
     const scope = resolveRequestScope()
     const scopeBody = buildChatScopeBody(scope)
     try {
@@ -359,6 +361,7 @@ export function useKbModalChat(opts: {
       if (msg) msg.content = '请求失败，请重试'
     } finally {
       modalIsStreaming.value = false
+      modalStreamingAssistantId.value = null
       modalStreamCtrl = null
     }
   }
@@ -383,6 +386,7 @@ export function useKbModalChat(opts: {
     modalMessages,
     modalInput,
     modalIsStreaming,
+    modalStreamingAssistantId,
     modalConversationId,
     modalConversations,
     showModalHistoryPanel,

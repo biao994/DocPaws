@@ -1,4 +1,4 @@
-﻿import json
+import json
 
 
 class _FakeDoc:
@@ -66,7 +66,7 @@ def test_chat_stream_sse_returns_ids(auth_client, db_session, monkeypatch, tmp_p
         return None, _VS()
 
     async def _fake_run_agent_stream(**kwargs):
-        yield "你好"
+        yield {"kind": "answer_delta", "content": "你好"}
 
     import docpaws.usecases.chat_agent_runner as agent_runner
 

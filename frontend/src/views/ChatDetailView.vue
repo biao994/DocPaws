@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="page-root">
     <div class="chat-topbar">
       <button class="back-btn" @click="goBack" title="返回">
@@ -25,7 +25,10 @@
             v-if="msg.role === 'assistant'"
             :text="msg.thinking"
           />
-          <div class="message-text">{{ msg.content }}</div>
+          <ChatThinkingPlaceholder
+            v-if="isAssistantAwaitingContent(msg, streamingAssistantId)"
+          />
+          <div v-else class="message-text">{{ msg.content }}</div>
           <div class="message-meta">
             <span>{{ msg.role === 'assistant' ? '系统' : '用户' }} · {{ formatTime(msg.created_at) }}</span>
           </div>
@@ -52,6 +55,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import ComposerBox from '../components/ComposerBox.vue'
+import ChatThinkingPlaceholder from '../components/ChatThinkingPlaceholder.vue'
 import ThinkingSection from '../components/ThinkingSection.vue'
 import { CHAT_STREAM_URL } from '../api/chat'
 import { readChatSse, type ChatStreamPayload } from '../api/chatStream'
@@ -59,6 +63,7 @@ import { applyChatStreamToAssistant } from '../api/chatStreamHandlers'
 import { useChatMode } from '../composables/useChatMode'
 import { applyFetchUnauthorized } from '../auth/session'
 import { isAbortError } from '../utils/errors'
+import { isAssistantAwaitingContent } from '../utils/chatPending'
 
 type ViewName = 'home' | 'kb' | 'history' | 'chat'
 type ChatMsg = {
@@ -83,6 +88,7 @@ const conversationId = ref<string | null>(null)
 const messages = ref<ChatMsg[]>([])
 const questionInput = ref('')
 const isStreaming = ref(false)
+const streamingAssistantId = ref<string | null>(null)
 let streamCtrl: AbortController | null = null
 
 const formatTime = (dateStr: string) => {
@@ -123,6 +129,7 @@ const sendQuestion = async () => {
   )
   questionInput.value = ''
   isStreaming.value = true
+  streamingAssistantId.value = aiId
   await scrollToBottom()
 
   try {
@@ -202,6 +209,7 @@ const sendQuestion = async () => {
     await pushHint('请求失败，请稍后重试')
   } finally {
     isStreaming.value = false
+    streamingAssistantId.value = null
     streamCtrl = null
   }
 }

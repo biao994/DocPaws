@@ -34,6 +34,7 @@
           :document-title="previewDoc.title"
           :messages="modalMessages"
           :is-streaming="modalIsStreaming"
+          :pending-assistant-id="modalStreamingAssistantId"
           :composer-placeholder="modalInputPlaceholder"
           @close="closePreviewModal"
           @send="sendModalQuestion"
@@ -101,6 +102,7 @@
           :active-conversation-id="modalConversationId"
           :open-conversation-menu-id="openConversationMenuId"
           :is-streaming="modalIsStreaming"
+          :pending-assistant-id="modalStreamingAssistantId"
           :composer-placeholder="modalInputPlaceholder"
           @close="closeChatModal"
           @new-conversation="newModalConversation"
@@ -488,6 +490,7 @@ const {
   modalMessages,
   modalInput,
   modalIsStreaming,
+  modalStreamingAssistantId,
   modalConversationId,
   showModalHistoryPanel,
   modalExpanded,

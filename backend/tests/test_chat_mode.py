@@ -1,4 +1,4 @@
-﻿import json
+import json
 
 
 def test_chat_stream_deep_emits_thinking_chunk(auth_client, db_session, monkeypatch, tmp_path):
@@ -48,7 +48,7 @@ def test_chat_stream_deep_emits_thinking_chunk(auth_client, db_session, monkeypa
         yield "3. 注意范围是整个知识库，需覆盖主要文档类型。\n"
 
     async def _fake_run_agent_stream(**kwargs):
-        yield "最终回答"
+        yield {"kind": "answer_delta", "content": "最终回答"}
 
     monkeypatch.setattr(chat_service, "build_retriever", _fake_build_retriever)
     monkeypatch.setattr(chat_service, "stream_thinking_prelude", _fake_thinking)

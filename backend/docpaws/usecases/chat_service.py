@@ -1,4 +1,4 @@
-﻿"""
+"""
 对话问答业务编排（Agent + 工具）
 
 流程：
@@ -602,17 +602,31 @@ async def _stream_answer_impl(
 
     full: list[str] = []
     try:
-        async for delta in run_agent_stream(
+        async for event in run_agent_stream(
             llm=llm,
             ctx=tool_ctx,
             question=question,
             history_text=history_text,
+            chat_mode=chat_mode,
         ):
-            if delta:
-                full.append(delta)
+            kind = event.get("kind")
+            content = event.get("content") or ""
+            if not content:
+                continue
+            if kind == "tool_running":
+                if chat_mode == "deep":
+                    yield {
+                        "type": "tool_running",
+                        "content": content,
+                        "request_id": request_id,
+                        "finished": False,
+                    }
+                continue
+            if kind == "answer_delta":
+                full.append(content)
                 yield {
                     "type": "answer_chunk",
-                    "content": delta,
+                    "content": content,
                     "request_id": request_id,
                     "finished": False,
                 }

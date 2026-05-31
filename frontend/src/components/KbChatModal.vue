@@ -55,7 +55,10 @@
       </div>
       <div class="chat-modal-main">
         <div class="chat-modal-body">
-          <ChatMessageList :messages="messages" />
+          <ChatMessageList
+            :messages="messages"
+            :pending-assistant-id="pendingAssistantId"
+          />
         </div>
         <div v-if="showHistory" class="chat-history-panel">
           <div class="chat-history-title">问答历史</div>
@@ -128,6 +131,7 @@ defineProps<{
   activeConversationId: string | null
   openConversationMenuId: string | null
   isStreaming: boolean
+  pendingAssistantId?: string | null
   composerPlaceholder: string
 }>()
 

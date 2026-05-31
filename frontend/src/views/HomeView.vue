@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="page-root">
     <!-- 顶部导航栏 -->
     <div class="top-nav">
@@ -113,7 +113,10 @@
                   v-if="msg.role === 'assistant'"
                   :text="msg.thinking"
                 />
-                <div class="message-text">{{ msg.content }}</div>
+                <ChatThinkingPlaceholder
+                  v-if="isAssistantAwaitingContent(msg, streamingAssistantId)"
+                />
+                <div v-else class="message-text">{{ msg.content }}</div>
                 <div class="message-meta">
                   <span>{{ msg.role === 'assistant' ? '系统' : '用户' }} · {{ formatTime(msg.created_at) }}</span>
                 </div>
@@ -172,6 +175,7 @@
 
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import ComposerBox from '../components/ComposerBox.vue'
+import ChatThinkingPlaceholder from '../components/ChatThinkingPlaceholder.vue'
 import ThinkingSection from '../components/ThinkingSection.vue'
 import MascotLogo from '../components/MascotLogo.vue'
 import { logout as authLogout } from '../api/auth'
@@ -192,6 +196,7 @@ import { clearSession, currentUser } from '../auth/session'
 import { applyFetchUnauthorized } from '../auth/session'
 import { isAbortError } from '../utils/errors'
 import { applyKbMentionToInput } from '../utils/kbMention'
+import { isAssistantAwaitingContent } from '../utils/chatPending'
 import { setOpenFileChat } from '../utils/openFileChat'
 // 定义视图类型
 type ViewName = 'home' | 'kb' | 'history' | 'chat'
@@ -236,6 +241,7 @@ const currentConversation = ref<Conversation | null>(null)
 const messages = ref<Message[]>([])
 const chatContent = ref<HTMLElement | null>(null)
 const isStreaming = ref(false)
+const streamingAssistantId = ref<string | null>(null)
 let streamCtrl: AbortController | null = null
 const draftConversationId = ref<string | null>(null)
 /** 当前会话的问答范围（续聊时与创建会话时一致） */
@@ -467,6 +473,7 @@ const sendFromHome = async () => {
   )
   inputValue.value = ''
   isStreaming.value = true
+  streamingAssistantId.value = aiTempId
   queueMicrotask(scrollToBottom)
 
   try {
@@ -560,6 +567,7 @@ const sendFromHome = async () => {
     if (aiMsg) aiMsg.content = '提示：请求失败，请稍后重试'
   } finally {
     isStreaming.value = false
+    streamingAssistantId.value = null
     streamCtrl = null
   }
 }

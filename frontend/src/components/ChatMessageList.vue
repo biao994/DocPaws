@@ -5,7 +5,10 @@
         v-if="msg.role === 'assistant'"
         :text="msg.thinking"
       />
-      <div class="modal-message-text">{{ msg.content }}</div>
+      <ChatThinkingPlaceholder
+        v-if="isAssistantAwaitingContent(msg, pendingAssistantId)"
+      />
+      <div v-else class="modal-message-text">{{ msg.content }}</div>
       <div v-if="msg.role === 'assistant' && msg.citations?.length" class="modal-citations">
         <div class="source-title">引用来源</div>
         <div v-for="c in msg.citations" :key="`${msg.id}-${c.chunk_id}`" class="source-item">
@@ -26,7 +29,9 @@
 </template>
 
 <script setup lang="ts">
+import ChatThinkingPlaceholder from './ChatThinkingPlaceholder.vue'
 import ThinkingSection from './ThinkingSection.vue'
+import { isAssistantAwaitingContent } from '../utils/chatPending'
 
 export type ChatCitation = {
   chunk_id: string
@@ -46,6 +51,7 @@ export type ChatModalMessage = {
 
 defineProps<{
   messages: readonly ChatModalMessage[]
+  pendingAssistantId?: string | null
 }>()
 </script>
 

@@ -112,7 +112,10 @@
                 v-if="msg.role === 'assistant'"
                 :text="msg.thinking"
               />
-              <div class="message-text">{{ msg.content }}</div>
+              <ChatThinkingPlaceholder
+                v-if="isAssistantAwaitingContent(msg, streamingAssistantId)"
+              />
+              <div v-else class="message-text">{{ msg.content }}</div>
               <div class="message-meta">
                 <span>{{ msg.role === 'assistant' ? '系统' : '用户' }} · {{ formatTime(msg.created_at) }}</span>
               </div>
@@ -157,6 +160,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import ComposerBox from '../components/ComposerBox.vue'
 import ThinkingSection from '../components/ThinkingSection.vue'
+import ChatThinkingPlaceholder from '../components/ChatThinkingPlaceholder.vue'
 import MascotLogo from '../components/MascotLogo.vue'
 import { logout as authLogout } from '../api/auth'
 import { readChatSse, type ChatStreamPayload } from '../api/chatStream'
@@ -175,6 +179,7 @@ import { CHAT_STREAM_URL } from '../api/chat'
 import { applyFetchUnauthorized, clearSession, currentUser } from '../auth/session'
 import { isAbortError } from '../utils/errors'
 import { applyKbMentionToInput } from '../utils/kbMention'
+import { isAssistantAwaitingContent } from '../utils/chatPending'
 import { setOpenFileChat } from '../utils/openFileChat'
 
 type ViewName = 'home' | 'kb' | 'history' | 'chat'
@@ -235,6 +240,7 @@ const currentConversation = ref<Conversation | null>(null)
 const messages = ref<Message[]>([])
 const questionInput = ref('')
 const isStreaming = ref(false)
+const streamingAssistantId = ref<string | null>(null)
 const errorText = ref('')
 const selectedAttachmentName = ref('')
 let streamCtrl: AbortController | null = null
@@ -462,6 +468,7 @@ const sendQuestion = async () => {
   )
   questionInput.value = ''
   isStreaming.value = true
+  streamingAssistantId.value = aiTempId
   errorText.value = ''
   scrollToBottom()
 
@@ -536,6 +543,7 @@ const sendQuestion = async () => {
     }
   } finally {
     isStreaming.value = false
+    streamingAssistantId.value = null
     streamCtrl = null
   }
 }
