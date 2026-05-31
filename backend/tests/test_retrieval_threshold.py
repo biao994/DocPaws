@@ -1,9 +1,10 @@
-﻿"""检索距离阈值与拒答逻辑单测。"""
+"""检索距离阈值与拒答逻辑单测。"""
 from __future__ import annotations
 
 from docpaws.usecases.chat_service import (
     INSUFFICIENT_RETRIEVAL_MSG,
     _filter_scored_pairs,
+    _resolve_retrieval_fetch_k,
     docs_from_scored_pairs,
     hit_chunks_from_docs,
     retrieve_docs_with_retry,
@@ -40,6 +41,17 @@ def test_retrieve_docs_with_retry_applies_threshold(monkeypatch):
     docs = retrieve_docs_with_retry(_VS(), "q", search_k=5)
     assert len(docs) == 1
     assert docs[0].metadata["_retrieval_score"] == 0.1
+
+
+def test_resolve_retrieval_fetch_k_expands_when_filtered():
+    class _Idx:
+        ntotal = 1287
+
+    class _VS:
+        index = _Idx()
+
+    assert _resolve_retrieval_fetch_k(_VS(), 5, None) == 20
+    assert _resolve_retrieval_fetch_k(_VS(), 5, {"document_id": "x"}) == 1287
 
 
 def test_hit_chunks_from_docs_includes_score():

@@ -139,6 +139,18 @@ def should_skip_retrieval_preflight(question: str) -> bool:
     return bool(_META_PREFLIGHT_SKIP_RE.search(q))
 
 
+def _resolve_retrieval_fetch_k(vectorstore, search_k: int, metadata_filter) -> int:
+    """LangChain FAISS 带 filter 时先在全库取 top fetch_k 再过滤；scope 下过小的 fetch_k 会漏掉目标文档。"""
+    base = max(search_k * 4, 20)
+    if metadata_filter is None:
+        return base
+    index = getattr(vectorstore, "index", None)
+    ntotal = getattr(index, "ntotal", 0) if index is not None else 0
+    if isinstance(ntotal, int) and ntotal > 0:
+        return ntotal
+    return max(base, 500)
+
+
 def retrieve_docs_with_retry(
     vectorstore,
     question: str,
@@ -148,21 +160,21 @@ def retrieve_docs_with_retry(
     max_retries: int = 2,
 ) -> list:
     """向量检索（带分数 + 可选距离阈值）；metadata_filter 为 None 时检索整库。"""
-    fetch_k = max(search_k * 4, 20)
+    fetch_k = _resolve_retrieval_fetch_k(vectorstore, search_k, metadata_filter)
     last_error = None
     for attempt in range(max_retries + 1):
         try:
             if hasattr(vectorstore, "similarity_search_with_score"):
                 pairs = vectorstore.similarity_search_with_score(
                     question,
-                    k=fetch_k,
+                    k=search_k,
                     filter=metadata_filter,
                     fetch_k=fetch_k,
                 )
             else:
                 raw = vectorstore.similarity_search(
                     question,
-                    k=fetch_k,
+                    k=search_k,
                     filter=metadata_filter,
                     fetch_k=fetch_k,
                 )
@@ -221,7 +233,7 @@ def retrieve_scoped_docs_cached(
             search_k=search_k,
             metadata_filter=metadata_filter,
         )
-        if cache_redis is not None and cache_key:
+        if cache_redis is not None and cache_key and docs:
             try:
                 ttl = int(getattr(settings, "RETRIEVAL_CACHE_TTL_SECONDS", 600) or 600)
                 ttl = max(30, ttl)
