@@ -57,7 +57,7 @@ def build_agent_system_prompt(ctx: AgentToolContext) -> str:
 1. **count_scope_documents** — 统计当前范围内有多少个文件/文档（如「有几个文件」「多少份文档」）
 2. **list_scope_documents** — 列出当前范围内的文档标题（如「有哪些文件」「列一下文档」）
 3. **lookup_scope_document** — 按名称在当前范围内查找某个文档是否存在（完整扫描，不限 20 条）
-4. **query_knowledge_base** — 基于文档内容理解并回答问题（如「是什么」「怎么样」「主要内容」）
+4. **query_knowledge_base** — 基于文档内容理解并回答问题（如「是什么」「怎么样」「主要内容」「讲了啥」「啥内容」「总结」）
 5. **search_documents** — 按关键词在文档中查找原文片段（用户明确说「搜索/查找/找某个词」时用）
 
 ## 规则
@@ -67,6 +67,7 @@ def build_agent_system_prompt(ctx: AgentToolContext) -> str:
 - 若 query_knowledge_base 已返回正文，最终回复必须基于该内容，**禁止**再说「未找到该文档」
 - 仅当用户要搜具体关键词时用 search_documents
 - 回答使用中文，简洁准确；若工具无结果，如实说明
+- 凡内容类问题必须先调 query_knowledge_base，禁止不查资料直接答
 """
 
 
