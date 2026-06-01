@@ -71,10 +71,12 @@
           :view-mode="viewMode"
           :items="visibleCards"
           :empty-message="selectedFolderId ? '当前文件夹为空' : '暂无文件夹或文件'"
-          :file-scope-active="selectedScopeType === 'file'"
+          :file-scope-active="!!selectedDoc"
           :selected-doc-id="selectedDoc?.id ?? null"
           :get-pdf-card-src="getPdfCardPreviewSrc"
           @open-card="openCard"
+          @select-file="selectFileInGrid"
+          @open-file="openFileReader"
           @rename-item="renameItem"
           @delete-item="deleteItem"
           @download-doc="downloadDoc"
@@ -211,8 +213,8 @@ const selectedKb = ref<Kb | null>(null)
 const documents = ref<Doc[]>([])
 const selectedFolderId = ref<string | null>(null)
 const kbFolders = ref<KbFolderSummary[]>([])
+/** 网格中单击高亮，不影响对话范围 */
 const selectedDoc = ref<Doc | null>(null)
-const selectedScopeType = ref<'kb' | 'file'>('kb')
 const fileInput = ref<HTMLInputElement | null>(null)
 const folderInput = ref<HTMLInputElement | null>(null)
 const attachmentInput = ref<HTMLInputElement | null>(null)
@@ -335,8 +337,8 @@ const sortLabel = computed(() => {
   return '名称 Z-A'
 })
 function getChatScope() {
-  if (selectedScopeType.value === 'file' && selectedDoc.value) {
-    return { scope_type: 'file' as const, document_id: selectedDoc.value.id }
+  if (showPreviewModal.value && previewDoc.value) {
+    return { scope_type: 'file' as const, document_id: previewDoc.value.id }
   }
   if (selectedFolderId.value) {
     return { scope_type: 'folder' as const, folder_id: selectedFolderId.value }
@@ -352,14 +354,14 @@ function onScopeRestored(scope: {
   if (scope.scope_type === 'file' && scope.document_id) {
     const doc = documents.value.find((d) => d.id === scope.document_id)
     if (doc) {
-      selectedScopeType.value = 'file'
       selectedDoc.value = doc
       if (doc.folder_id) resetPathHistory(doc.folder_id)
+      previewDoc.value = doc
+      showPreviewModal.value = true
     }
     return
   }
   if (scope.scope_type === 'folder' && scope.folder_id) {
-    selectedScopeType.value = 'kb'
     selectedDoc.value = null
     resetPathHistory(scope.folder_id)
     return
@@ -408,7 +410,6 @@ const loadKnowledgeBases = async (options?: { selectKbId?: string }) => {
     (selectedKb.value && items.find((kb) => kb.id === selectedKb.value?.id)) ||
     defaultKb
   selectedKb.value = keep
-  selectedScopeType.value = 'kb'
   selectedDoc.value = null
 }
 
@@ -456,7 +457,14 @@ const loadDocuments = async () => {
     const matched = documents.value.find((d) => d.id === selectedDoc.value?.id)
     if (!matched) {
       selectedDoc.value = null
-      selectedScopeType.value = 'kb'
+    }
+  }
+  if (previewDoc.value) {
+    const matched = documents.value.find((d) => d.id === previewDoc.value?.id)
+    if (!matched) {
+      showPreviewModal.value = false
+      previewDoc.value = null
+      markKbSessionsStale()
     }
   }
 }
@@ -525,6 +533,7 @@ const chatModalTitle = computed(() => {
   const scope = effectiveScope.value
   if (scope.scope_type === 'file') {
     const doc =
+      previewDoc.value ||
       selectedDoc.value ||
       documents.value.find((d) => d.id === scope.document_id)
     const name = doc?.title || '当前文件'
@@ -538,7 +547,6 @@ const chatModalTitle = computed(() => {
 
 const selectKbFromSidebar = async (kb: Kb) => {
   selectedKb.value = kb
-  selectedScopeType.value = 'kb'
   selectedDoc.value = null
   resetPathHistory(null)
   markKbSessionsStale()
@@ -579,7 +587,6 @@ const deleteKbFromSidebar = async (kb: Kb) => {
     selectedKb.value = remaining[0] || null
     resetPathHistory(null)
     selectedDoc.value = null
-    selectedScopeType.value = 'kb'
     markKbSessionsStale()
     await loadDocuments()
   }
@@ -625,7 +632,6 @@ const submitCreateKb = async () => {
 }
 
 const syncScopeAfterPathChange = () => {
-  selectedScopeType.value = 'kb'
   selectedDoc.value = null
   markKbSessionsStale()
 }
@@ -653,11 +659,30 @@ const selectFolder = (folderId: string) => {
 const openCard = (item: KbBrowseCard) => {
   if (item.kind === 'folder' && item.folderId) {
     selectFolder(item.folderId)
-    return
   }
-  if (item.docId) {
-    handleFileClick(item.docId)
-  }
+}
+
+const findDocById = (docId: string) =>
+  filteredDocsByFolder.value.find((d) => d.id === docId) ||
+  documents.value.find((d) => d.id === docId) ||
+  null
+
+const selectFileInGrid = (item: KbBrowseCard) => {
+  if (!item.docId) return
+  const doc = findDocById(item.docId)
+  if (!doc) return
+  selectedDoc.value = doc
+}
+
+const openFileReader = (item: KbBrowseCard) => {
+  if (!item.docId) return
+  const doc = findDocById(item.docId)
+  if (!doc) return
+  selectedDoc.value = doc
+  previewDoc.value = doc
+  showPreviewModal.value = true
+  markKbSessionsStale()
+  void loadLatestConversationForReader()
 }
 
 const selectKbScope = () => {
@@ -665,25 +690,10 @@ const selectKbScope = () => {
   syncScopeAfterPathChange()
 }
 
-const selectFileScope = (doc: Doc) => {
-  selectedDoc.value = doc
-  selectedScopeType.value = 'file'
-  markKbSessionsStale()
-}
-
-const handleFileClick = (docId: string) => {
-  const doc =
-    filteredDocsByFolder.value.find((d) => d.id === docId) ||
-    documents.value.find((d) => d.id === docId)
-  if (!doc) return
-  selectFileScope(doc)
-  previewDoc.value = doc
-  showPreviewModal.value = true
-  void loadLatestConversationForReader()
-}
-
 const closePreviewModal = () => {
   showPreviewModal.value = false
+  previewDoc.value = null
+  markKbSessionsStale()
 }
 
 const toggleSearch = () => {
@@ -822,7 +832,6 @@ const deleteItem = async (item: KbBrowseCard) => {
       const deleted = kbFolders.value.find((f) => f.id === item.folderId)
       pathNavigateTo(deleted?.parent_id ?? null)
       selectedDoc.value = null
-      selectedScopeType.value = 'kb'
     }
     await loadDocuments()
   } catch (error) {
@@ -838,7 +847,11 @@ const deleteDoc = async (docId: string) => {
     await loadDocuments()
     if (selectedDoc.value?.id === docId) {
       selectedDoc.value = null
-      selectedScopeType.value = 'kb'
+    }
+    if (previewDoc.value?.id === docId) {
+      showPreviewModal.value = false
+      previewDoc.value = null
+      markKbSessionsStale()
     }
   } catch (error) {
     console.error('Delete failed:', error)
@@ -909,7 +922,6 @@ const openFileChatFromHistory = async (payload: {
   } else {
     resetPathHistory(null)
   }
-  selectedScopeType.value = 'file'
   selectedDoc.value = doc
   previewDoc.value = doc
   showPreviewModal.value = true

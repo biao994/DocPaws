@@ -7,7 +7,8 @@
         :key="item.id"
         class="file-card"
         :class="{ active: isFileActive(item) }"
-        @click="emit('openCard', item)"
+        @click="handleCardClick(item)"
+        @dblclick="handleCardDblClick(item)"
       >
         <div class="file-card-actions">
           <div class="more-menu-wrap">
@@ -70,7 +71,8 @@
         :key="`list-${item.id}`"
         class="list-row"
         :class="{ active: isFileActive(item) }"
-        @click="emit('openCard', item)"
+        @click="handleCardClick(item)"
+        @dblclick="handleCardDblClick(item)"
       >
         <div class="list-name">
           <svg v-if="item.kind === 'folder'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display: inline; vertical-align: middle; margin-right: 6px">
@@ -128,10 +130,28 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   openCard: [item: KbBrowseCard]
+  selectFile: [item: KbBrowseCard]
+  openFile: [item: KbBrowseCard]
   renameItem: [item: KbBrowseCard]
   deleteItem: [item: KbBrowseCard]
   downloadDoc: [docId: string]
 }>()
+
+function handleCardClick(item: KbBrowseCard) {
+  if (item.kind === 'folder') {
+    emit('openCard', item)
+    return
+  }
+  if (item.kind === 'file') {
+    emit('selectFile', item)
+  }
+}
+
+function handleCardDblClick(item: KbBrowseCard) {
+  if (item.kind === 'file' && item.docId) {
+    emit('openFile', item)
+  }
+}
 
 const openMenuId = ref<string | null>(null)
 
