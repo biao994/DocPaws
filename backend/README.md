@@ -1,4 +1,4 @@
-﻿# DocPaws Enterprise - 企业级智能文档助手
+# DocPaws Enterprise - 企业级智能文档助手
 
 ## 项目结构（分层架构）
 
@@ -21,7 +21,7 @@ DocPaws/
         models/            # SQLModel 表模型（按表族拆分）
         services/          # 纯领域逻辑（如 manifest_diff）
 
-      usecases/            # 业务编排层
+      usecases/            # 业务编排层（风格约定见 docs/architecture/usecases-style.md）
 
       infra/               # 基础设施层（外部依赖）
         repos/             # Repository（SQL 查询/写入）
@@ -39,6 +39,8 @@ DocPaws/
 ```
 api -> usecases -> domain -> infra（单向依赖）
 ```
+
+完整说明见 [`docs/architecture/layering.md`](../docs/architecture/layering.md)；usecases 代码约定见 [`usecases-style.md`](../docs/architecture/usecases-style.md)。
 
 - `api/routers/*`：只做校验 → 调用 service → 返回响应
 - `usecases/*`：业务流程编排（事务边界、状态流转）

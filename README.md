@@ -10,9 +10,11 @@ DocPaws/
   backend/          # FastAPI API、索引 worker、Celery 任务
   frontend/         # Vue 3 单页应用
   eval/             # Golden 20 RAG 回归评估
+  docs/             # 架构与开发约定
 ```
 
-详细后端分层见 [`backend/README.md`](backend/README.md)。  
+架构文档见 [`docs/architecture/layering.md`](docs/architecture/layering.md)（分层总览）、[`usecases-style.md`](docs/architecture/usecases-style.md)（用例层约定）。  
+详细后端说明见 [`backend/README.md`](backend/README.md)。  
 评估说明见 [`eval/README.md`](eval/README.md)。
 
 ## 环境要求
