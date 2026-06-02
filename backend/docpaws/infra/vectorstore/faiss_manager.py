@@ -1,4 +1,4 @@
-﻿"""
+"""
 FAISS 向量存储管理器
 
 封装 FAISS 的创建/加载/检索/分块能力。
@@ -9,10 +9,10 @@ from typing import List
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
 
 from docpaws.config import get_default_config
+from docpaws.infra.embedding.client import create_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -23,13 +23,7 @@ class VectorStoreManager:
     def __init__(self, config: dict | None = None):
         self.config = config or get_default_config()
         self.vectorstore: FAISS | None = None
-        self.embeddings = OpenAIEmbeddings(
-            model=self.config.get("embedding_model", "BAAI/bge-large-zh-v1.5"),
-            chunk_size=self.config.get("embedding_chunk_size", 200),
-            timeout=self.config.get("embedding_timeout", 120),
-            api_key=self.config.get("embedding_api_key"),
-            base_url=self.config.get("embedding_base_url"),
-        )
+        self.embeddings = create_embeddings(self.config)
 
     def split_documents(self, documents: List[Document]) -> List[Document]:
         """对文档进行智能分块"""
