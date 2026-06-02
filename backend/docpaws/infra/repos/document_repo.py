@@ -80,19 +80,20 @@ def unlink_file_object_if_unused(session: Session, file_object_id: str) -> str |
     return path
 
 
-def delete_document_cascade(session: Session, document_id: str) -> str | None:
+def delete_document_cascade(session: Session, document_id: str) -> tuple[str | None, str | None]:
     """
     级联删除文档及其关联数据（jobs/chunks/kb_file/file_object）
 
     Returns:
-        待删除的对象 key（如有），需在 commit 后手动清理
+        (pdf_object_key, thumbnail_key) 待删除的对象 key（如有），需在 commit 后手动清理
     """
     doc = session.get(Document, document_id)
     if not doc:
-        return None
+        return None, None
 
     kb_file_id = doc.kb_file_id
     object_key_to_remove: str | None = None
+    thumbnail_key_to_remove: str | None = (doc.thumbnail_key or "").strip() or None
 
     for chunk in session.exec(select(Chunk).where(Chunk.document_id == document_id)).all():
         session.delete(chunk)
@@ -121,7 +122,7 @@ def delete_document_cascade(session: Session, document_id: str) -> str | None:
                         object_key_to_remove = file_obj.object_key
                         session.delete(file_obj)
 
-    return object_key_to_remove
+    return object_key_to_remove, thumbnail_key_to_remove
 
 
 def delete_chunks_by_document_id(session: Session, document_id: str) -> None:

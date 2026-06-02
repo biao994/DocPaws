@@ -1,5 +1,6 @@
 import type { AxiosProgressEvent, AxiosResponse } from 'axios'
 import { calcHttpUploadPercent } from '../utils/kbUploadProgress'
+import { withApiBase } from './config'
 import { http } from './http'
 
 function formDataUploadBytes(formData: FormData): number {
@@ -19,6 +20,11 @@ export type DocumentSummary = {
   folder_id?: string | null
   /** 服务端归一化目录（如 `资料/2023`）；与 folder_id 对应的路径缓存 */
   folder_path?: string | null
+  has_thumbnail?: boolean
+}
+
+export function documentThumbnailUrl(docId: string): string {
+  return withApiBase(`/api/v1/documents/${docId}/thumbnail`)
 }
 
 export async function listKbDocuments(kbId: string): Promise<DocumentSummary[]> {

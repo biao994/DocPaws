@@ -11,6 +11,7 @@ langgraph-checkpoint==3.0.0
 faiss-cpu==1.13.2
 python-dotenv==1.2.1
 pymupdf==1.25.3
+Pillow>=10.0.0
 fastapi==0.115.0
 python-multipart==0.0.29
 itsdangerous>=2.1.0

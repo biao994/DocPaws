@@ -515,7 +515,7 @@ def delete_document(session: Session, document_id: str) -> dict:
         ).model_dump()
 
     kb_id = doc.kb_id
-    object_key_to_remove = delete_document_cascade(session, document_id)
+    object_key_to_remove, thumbnail_key_to_remove = delete_document_cascade(session, document_id)
     job_id, should_enqueue = ensure_kb_index_job(session, kb_id, idempotency_key=None)
     session.commit()
 
@@ -524,6 +524,11 @@ def delete_document(session: Session, document_id: str) -> dict:
         try:
             delete_object(object_key_to_remove)
             physical_deleted = True
+        except Exception:
+            pass
+    if thumbnail_key_to_remove:
+        try:
+            delete_object(thumbnail_key_to_remove)
         except Exception:
             pass
 
@@ -660,6 +665,7 @@ def _to_doc_data(doc: Document) -> dict:
         folder_id=doc.folder_id,
         folder_path=doc.folder_path,
         created_at=doc.created_at,
+        has_thumbnail=bool((doc.thumbnail_key or "").strip()),
     ).model_dump()
 
 
@@ -830,6 +836,27 @@ class DocumentService:
         if not filename.lower().endswith(".pdf"):
             filename = f"{filename}.pdf"
         return file_obj.object_key, filename
+
+    def get_document_thumbnail(self, *, document_id: str) -> str:
+        """返回缩略图 S3 object key；不存在时抛 AppError。"""
+        from docpaws.infra.repos.document_repo import get_document_by_id
+
+        doc = get_document_by_id(self.session, document_id)
+        if not doc:
+            raise AppError(
+                error_code="DOCUMENT_NOT_FOUND",
+                message="文档不存在或已被删除",
+                status_code=404,
+            )
+        key = (doc.thumbnail_key or "").strip()
+        if not key:
+            raise AppError(
+                error_code="FILE_NOT_FOUND",
+                message="缩略图尚未生成",
+                status_code=404,
+                details={"document_id": document_id},
+            )
+        return key
 
     def delete_document(self, *, document_id: str) -> dict:
         return delete_document(self.session, document_id)

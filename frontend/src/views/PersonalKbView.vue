@@ -73,7 +73,7 @@
           :empty-message="selectedFolderId ? '当前文件夹为空' : '暂无文件夹或文件'"
           :file-scope-active="!!selectedDoc"
           :selected-doc-id="selectedDoc?.id ?? null"
-          :get-pdf-card-src="getPdfCardPreviewSrc"
+          :get-thumbnail-src="getDocumentThumbnailSrc"
           @open-card="openCard"
           @select-file="selectFileInGrid"
           @open-file="openFileReader"
@@ -185,6 +185,7 @@ import { clearSession, currentUser } from '../auth/session'
 import { createKnowledgeBase, deleteKnowledgeBase, listKnowledgeBases, renameKnowledgeBase } from '../api/kb'
 import {
   deleteDocument,
+  documentThumbnailUrl,
   downloadDocumentBlob,
   listKbDocuments,
   renameDocument,
@@ -193,10 +194,7 @@ import {
 type ViewName = 'home' | 'kb' | 'history'
 type Kb = { id: string; name: string; created_at: string }
 type Doc = KbBrowseListingDoc
-const getPdfCardPreviewSrc = (docId?: string) => {
-  if (!docId) return ''
-  return `/api/v1/documents/${docId}/file#page=1&toolbar=0&navpanes=0&scrollbar=0&statusbar=0&messages=0&view=FitH`
-}
+const getDocumentThumbnailSrc = (docId?: string) => (docId ? documentThumbnailUrl(docId) : '')
 const getPdfReaderSrc = (docId?: string) => {
   if (!docId) return ''
   return `/api/v1/documents/${docId}/file#page=1&toolbar=0&navpanes=0&scrollbar=0&statusbar=0&messages=0&view=FitH`

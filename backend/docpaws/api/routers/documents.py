@@ -17,6 +17,7 @@ from docpaws.usecases.document_service import DocumentService
 from docpaws.usecases.index_service import IndexService
 from docpaws.errors import AppError
 from docpaws.infra.storage.s3_minio import head_meta, stream_get
+from docpaws.usecases.thumbnail_service import THUMBNAIL_CACHE_CONTROL
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -171,6 +172,46 @@ def api_get_document_file(
     headers["Content-Range"] = f"bytes {start}-{end}/{total}"
     headers["Content-Length"] = str(end - start + 1)
     return StreamingResponse(it, media_type=ctype, headers=headers, status_code=206)
+
+
+@router.get("/documents/{document_id}/thumbnail")
+def api_get_document_thumbnail(
+    request: Request,
+    document_id: str,
+    current_user: User = Depends(get_current_user),
+    session: Session = DependsSession,
+    svc: DocumentService = Depends(get_document_service),
+):
+    """获取文档首页缩略图（WebP）"""
+    require_document_readable(session, document_id, current_user.id)
+
+    object_key = svc.get_document_thumbnail(document_id=document_id)
+    try:
+        base_meta = head_meta(object_key)
+    except Exception as e:
+        if _is_object_not_found_error(e):
+            _raise_file_not_found(object_key=object_key, document_id=document_id)
+        raise
+
+    try:
+        it, meta = stream_get(object_key)
+    except Exception as e:
+        if _is_object_not_found_error(e):
+            _raise_file_not_found(object_key=object_key, document_id=document_id)
+        raise
+
+    headers = {
+        "Content-Type": base_meta.get("content_type") or "image/webp",
+        "Cache-Control": THUMBNAIL_CACHE_CONTROL,
+    }
+    if base_meta.get("content_length") is not None:
+        headers["Content-Length"] = str(base_meta["content_length"])
+    if base_meta.get("etag"):
+        headers["ETag"] = base_meta["etag"]
+    if meta.get("content_length") is not None:
+        headers["Content-Length"] = str(meta["content_length"])
+
+    return StreamingResponse(it, media_type=headers["Content-Type"], headers=headers)
 
 
 @router.patch("/documents/{document_id}")

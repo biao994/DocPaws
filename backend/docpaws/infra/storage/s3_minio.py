@@ -58,6 +58,22 @@ def head_meta(object_key: str) -> dict:
     }
 
 
+def upload_bytes(data: bytes, object_key: str, content_type: Optional[str] = None) -> dict:
+    """上传内存字节到对象存储。"""
+    s3 = _client()
+    extra = {}
+    if content_type:
+        extra["ContentType"] = content_type
+    s3.put_object(Bucket=settings.S3_BUCKET, Key=object_key, Body=data, **extra)
+    etag = ""
+    try:
+        r = s3.head_object(Bucket=settings.S3_BUCKET, Key=object_key)
+        etag = (r.get("ETag") or "").strip('"')
+    except Exception:
+        pass
+    return {"etag": etag, "size": len(data)}
+
+
 def upload_file(local_path: str, object_key: str, content_type: Optional[str] = None) -> dict:
     """
     上传本地文件到对象存储。

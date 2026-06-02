@@ -33,6 +33,10 @@ def run_migrations() -> None:
             conn.execute(text("ALTER TABLE document ADD COLUMN folder_id VARCHAR"))
             logger.info("Added document.folder_id column")
 
+        if _table_exists(inspector, "document") and not _column_exists(inspector, "document", "thumbnail_key"):
+            conn.execute(text("ALTER TABLE document ADD COLUMN thumbnail_key VARCHAR"))
+            logger.info("Added document.thumbnail_key column")
+
         if _table_exists(inspector, "conversation"):
             if not _column_exists(inspector, "conversation", "scope_type"):
                 conn.execute(text("ALTER TABLE conversation ADD COLUMN scope_type VARCHAR DEFAULT 'kb'"))

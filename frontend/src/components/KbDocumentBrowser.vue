@@ -35,14 +35,16 @@
             </div>
           </div>
         </div>
-        <div class="file-icon" :class="[item.type, { 'pdf-preview': item.kind === 'file' && !!item.docId }]">
-          <iframe
-            v-if="item.kind === 'file' && item.docId"
-            class="pdf-card-preview-frame"
-            :src="getPdfCardSrc(item.docId)"
-            title="PDF预览"
-            scrolling="no"
-          ></iframe>
+        <div class="file-icon" :class="[item.type, { 'pdf-preview': item.kind === 'file' && !!item.docId && !isThumbFailed(item.docId) }]">
+          <img
+            v-if="item.kind === 'file' && item.docId && !isThumbFailed(item.docId)"
+            class="pdf-card-thumb"
+            :src="getThumbnailSrc(item.docId)"
+            :alt="`${item.name} 缩略图`"
+            loading="lazy"
+            decoding="async"
+            @error="markThumbFailed(item.docId)"
+          />
           <svg v-else-if="item.kind === 'folder'" width="29" height="29" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
           </svg>
@@ -125,7 +127,7 @@ const props = defineProps<{
   /** 当前是否为「按单文件问答」范围 */
   fileScopeActive: boolean
   selectedDocId: string | null
-  getPdfCardSrc: (docId?: string) => string
+  getThumbnailSrc: (docId?: string) => string
 }>()
 
 const emit = defineEmits<{
@@ -154,6 +156,16 @@ function handleCardDblClick(item: KbBrowseCard) {
 }
 
 const openMenuId = ref<string | null>(null)
+const failedThumbIds = ref<Set<string>>(new Set())
+
+function isThumbFailed(docId?: string) {
+  return !!docId && failedThumbIds.value.has(docId)
+}
+
+function markThumbFailed(docId?: string) {
+  if (!docId) return
+  failedThumbIds.value = new Set([...failedThumbIds.value, docId])
+}
 
 function isFileActive(item: KbBrowseCard) {
   return item.kind === 'file' && props.fileScopeActive && props.selectedDocId != null && item.docId === props.selectedDocId
@@ -376,18 +388,13 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
   color: transparent;
 }
 
-.pdf-card-preview-frame {
-  width: 170%;
-  height: 185%;
-  border: 0;
+.pdf-card-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
   pointer-events: none;
-  overflow: hidden;
-  scrollbar-width: none;
-  position: absolute;
-  top: 0;
-  left: 50%;
-  transform: translate(-50%, -34%);
-  transform-origin: top center;
+  display: block;
 }
 
 .file-icon.pdf-preview::before,

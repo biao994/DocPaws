@@ -15,6 +15,7 @@ class DocumentData(BaseModel):
     folder_id: str | None = None
     folder_path: str | None
     created_at: datetime
+    has_thumbnail: bool = False
 
 
 class DocumentUpdateRequest(BaseModel):

@@ -135,7 +135,21 @@ def _chunk_documents_for_index(document_ids: list[str], failed_parse: list[str])
         try:
             with Session(engine) as session:
                 object_key, filename = resolve_document_file(session, doc_id)
-            n = _parse_and_chunk_document(doc_id, object_key, filename)
+            temp_pdf_path = download_to_temp(object_key)
+            try:
+                if os.path.getsize(temp_pdf_path) <= 0:
+                    raise ValueError(f"empty pdf after download: {object_key}")
+                with Session(engine) as session:
+                    from docpaws.usecases.thumbnail_service import generate_document_thumbnail
+
+                    generate_document_thumbnail(session, doc_id, pdf_path=temp_pdf_path)
+                n = _parse_and_chunk_document(doc_id, temp_pdf_path, filename)
+            finally:
+                try:
+                    if os.path.exists(temp_pdf_path):
+                        os.remove(temp_pdf_path)
+                except Exception:
+                    pass
         except Exception:
             n = 0
         if n == 0:
@@ -149,23 +163,15 @@ def _index_path_for_kb(kb_id: str, version: int) -> str:
     return os.path.join(settings.INDEX_DIR, kb_id, f"v{version}")
 
 
-def _parse_and_chunk_document(document_id: str, object_key: str, original_filename: str) -> int:
-    """解析 PDF 并分块，返回写入的 chunk 数量。"""
+def _parse_and_chunk_document(document_id: str, temp_pdf_path: str, original_filename: str) -> int:
+    """解析 PDF 并分块，返回写入的 chunk 数量。调用方负责提供/清理 temp_pdf_path。"""
     cfg = get_default_config()
     vsm = VectorStoreManager(cfg)
 
-    temp_pdf_path = download_to_temp(object_key)
-    try:
-        if os.path.getsize(temp_pdf_path) <= 0:
-            raise ValueError(f"empty pdf after download: {object_key}")
-        docs = load_pdf_documents(temp_pdf_path, source_name=original_filename)
-        chunks = vsm.split_documents(docs)
-    finally:
-        try:
-            if os.path.exists(temp_pdf_path):
-                os.remove(temp_pdf_path)
-        except Exception:
-            pass
+    if os.path.getsize(temp_pdf_path) <= 0:
+        raise ValueError(f"empty pdf: {temp_pdf_path}")
+    docs = load_pdf_documents(temp_pdf_path, source_name=original_filename)
+    chunks = vsm.split_documents(docs)
 
     chunks_to_create = []
     for doc in chunks:

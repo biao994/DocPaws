@@ -34,6 +34,7 @@ class Document(SQLModel, table=True):
         description="当前激活索引产物 id",
     )
     indexed_at: datetime | None = Field(default=None)
+    thumbnail_key: str | None = Field(default=None, index=True, description="S3 缩略图 object key")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

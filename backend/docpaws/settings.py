@@ -73,11 +73,14 @@ class Settings:
     CACHE_REDIS_PREFIX = os.getenv("CACHE_REDIS_PREFIX", "docpaws:retrieve:")
     RETRIEVAL_CACHE_TTL_SECONDS = int(os.getenv("RETRIEVAL_CACHE_TTL_SECONDS", "600"))
     # FAISS L2 距离上限（越小越相似）；<=0 表示不按距离过滤（仅空结果拒答）
-    RETRIEVAL_MAX_DISTANCE = float(os.getenv("RETRIEVAL_MAX_DISTANCE", "0"))
+    RETRIEVAL_MAX_DISTANCE = float(os.getenv("RETRIEVAL_MAX_DISTANCE", "1.2"))
 
     CACHE_REDIS_MAX_CONNECTIONS = int(os.getenv("CACHE_REDIS_MAX_CONNECTIONS", "50"))
     CACHE_REDIS_CONNECT_TIMEOUT_SECONDS = float(os.getenv("CACHE_REDIS_CONNECT_TIMEOUT_SECONDS", "2"))
     CACHE_REDIS_SOCKET_TIMEOUT_SECONDS = float(os.getenv("CACHE_REDIS_SOCKET_TIMEOUT_SECONDS", "2"))
+
+    # PDF 卡片缩略图（首页 WebP，最长边像素）
+    THUMBNAIL_MAX_WIDTH = int(os.getenv("THUMBNAIL_MAX_WIDTH", "400"))
 
 
 settings = Settings()
