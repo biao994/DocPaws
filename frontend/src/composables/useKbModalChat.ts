@@ -68,6 +68,20 @@ export function useKbModalChat(opts: {
   const openConversationMenuId = ref<string | null>(null)
   /** 续聊时会话锁定范围；新会话用 getChatScope() */
   const lockedScope = ref<ChatScopePayload | null>(null)
+  /** 防止异步加载历史覆盖用户正在进行的对话 */
+  let conversationLoadToken = 0
+
+  const bindConversationIdFromStream = (
+    conversationId: string,
+    scope: ChatScopePayload,
+  ) => {
+    if (!modalConversationId.value) {
+      modalConversationId.value = conversationId
+      if (!lockedScope.value) {
+        lockedScope.value = scope
+      }
+    }
+  }
 
   const disposeStream = () => {
     if (modalStreamCtrl) {
@@ -97,6 +111,7 @@ export function useKbModalChat(opts: {
     `${kbId}|${chatScopeCacheKey(currentScope())}`
 
   const markKbSessionsStale = () => {
+    conversationLoadToken += 1
     modalLoadedScopeKey.value = null
     modalConversationId.value = null
     modalMessages.value = []
@@ -131,7 +146,9 @@ export function useKbModalChat(opts: {
   })
 
   const loadModalConversationMessages = async (conversationId: string) => {
+    const loadToken = conversationLoadToken
     const res = await getConversation(conversationId)
+    if (loadToken !== conversationLoadToken) return
     const data = res.data?.data
     if (data) applyConversationScope(data)
     const items = data?.messages || []
@@ -159,8 +176,15 @@ export function useKbModalChat(opts: {
     const kb = await opts.ensureSelectedKb()
     if (!kb) return
     const key = buildModalScopeKey(kb.id)
+    const loadToken = conversationLoadToken
     try {
       const items = await loadModalConversations(kb.id)
+      if (loadToken !== conversationLoadToken) return
+      // 用户已在当前范围发起新提问时，不要用「最近会话」覆盖进行中的对话
+      if (modalIsStreaming.value || modalMessages.value.length > 0) {
+        modalLoadedScopeKey.value = key
+        return
+      }
       modalLoadedScopeKey.value = key
       if (items[0]?.id) {
         modalConversationId.value = items[0].id
@@ -171,10 +195,13 @@ export function useKbModalChat(opts: {
         lockedScope.value = null
       }
     } catch {
+      if (loadToken !== conversationLoadToken) return
       modalLoadedScopeKey.value = key
-      modalConversationId.value = null
-      modalMessages.value = []
-      lockedScope.value = null
+      if (!modalIsStreaming.value && modalMessages.value.length === 0) {
+        modalConversationId.value = null
+        modalMessages.value = []
+        lockedScope.value = null
+      }
     }
   }
 
@@ -195,7 +222,10 @@ export function useKbModalChat(opts: {
     const kb = await opts.ensureSelectedKb()
     if (!kb) return
     const key = buildModalScopeKey(kb.id)
-    if (modalLoadedScopeKey.value !== key) {
+    if (
+      modalLoadedScopeKey.value !== key ||
+      (!modalConversationId.value && modalMessages.value.length === 0)
+    ) {
       await loadLatestConversationForReader()
     }
   }
@@ -310,17 +340,18 @@ export function useKbModalChat(opts: {
         }
         await readChatSse(res, {
           onPayload: async (data: ChatStreamPayload) => {
+            if (data.event === 'meta' && data.conversation_id) {
+              bindConversationIdFromStream(data.conversation_id, scope)
+              return
+            }
             if (data.content) {
               const msg = modalMessages.value.find((m) => m.id === aiId)
               if (msg) applyChatStreamToAssistant(data, msg)
             }
             if (data.finished) {
               streamOk = true
-              if (data.conversation_id && !modalConversationId.value) {
-                modalConversationId.value = data.conversation_id
-                if (!lockedScope.value) {
-                  lockedScope.value = scope
-                }
+              if (data.conversation_id) {
+                bindConversationIdFromStream(data.conversation_id, scope)
               }
               const msg = modalMessages.value.find((m) => m.id === aiId)
               if (msg) msg.citations = (data.citations as KbModalCitation[]) || []

@@ -516,6 +516,27 @@ const sendQuestion = async () => {
         if (payload.event === 'error' || payload.code) {
           throw new Error(String(payload.content || '处理失败'))
         }
+        if (payload.event === 'meta' && payload.conversation_id) {
+          if (!currentConversation.value || currentConversation.value.id.startsWith('local-')) {
+            const title =
+              question.length > 30 ? `${question.slice(0, 30)}…` : question
+            const conv: Conversation = {
+              id: payload.conversation_id,
+              title,
+              updated_at: new Date().toISOString(),
+              kb_id: kbIdForChat,
+            }
+            conversations.value = [
+              conv,
+              ...conversations.value.filter(
+                (c) =>
+                  !c.id.startsWith('local-') && c.id !== payload.conversation_id,
+              ),
+            ]
+            currentConversation.value = conv
+          }
+          return
+        }
         if (payload.content) {
           const aiMsg = messages.value.find((m) => m.id === aiTempId)
           if (aiMsg) {
@@ -525,6 +546,12 @@ const sendQuestion = async () => {
         }
         if (payload.finished) {
           done = true
+          if (payload.conversation_id && currentConversation.value?.id.startsWith('local-')) {
+            currentConversation.value = {
+              ...currentConversation.value,
+              id: payload.conversation_id,
+            }
+          }
         }
       },
     })
@@ -545,6 +572,9 @@ const sendQuestion = async () => {
     isStreaming.value = false
     streamingAssistantId.value = null
     streamCtrl = null
+    if (currentConversation.value && !currentConversation.value.id.startsWith('local-')) {
+      void loadConversations()
+    }
   }
 }
 // 点击外部关闭下拉菜单

@@ -672,7 +672,7 @@ const selectFileInGrid = (item: KbBrowseCard) => {
   selectedDoc.value = doc
 }
 
-const openFileReader = (item: KbBrowseCard) => {
+const openFileReader = async (item: KbBrowseCard) => {
   if (!item.docId) return
   const doc = findDocById(item.docId)
   if (!doc) return
@@ -680,7 +680,7 @@ const openFileReader = (item: KbBrowseCard) => {
   previewDoc.value = doc
   showPreviewModal.value = true
   markKbSessionsStale()
-  void loadLatestConversationForReader()
+  await loadLatestConversationForReader()
 }
 
 const selectKbScope = () => {
