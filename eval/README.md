@@ -47,7 +47,9 @@ python ../eval/run_rag_eval.py --http --base-url http://127.0.0.1:8001
 
 ## CSV 字段
 
-`id`, `category`, `question`, `answer`, `citation_count`, `latency_ms`, `pass`, `reason`, `model`, `kb_id`, `run_at`
+`id`, `category`, `question`, `answer`, `citation_count`, `top1_l2`, `latency_ms`, `pass`, `reason`, `model`, `kb_id`, `run_at`
+
+`top1_l2`：direct 模式下、**距离阈值过滤前**最近一条 chunk 的 FAISS L2（越小越相似），用于标定 `RETRIEVAL_MAX_DISTANCE`。
 
 ## 题型
 

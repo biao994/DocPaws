@@ -58,37 +58,81 @@ def _load_dotenv() -> None:
 
 
 def _cjk_font() -> "fitz.Font":
+    """PyMuPDF 内置 CJK 字体，随库走，不依赖系统装雅黑/苹方。"""
     import fitz
 
-    candidates = [
-        Path(r"C:\Windows\Fonts\msyh.ttc"),
-        Path(r"C:\Windows\Fonts\simhei.ttf"),
-        Path("/System/Library/Fonts/PingFang.ttc"),
-        Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
-    ]
-    for p in candidates:
-        if p.is_file():
-            return fitz.Font(fontfile=str(p))
     return fitz.Font("china-s")
 
 
+def _fixture_pdf_content(title: str, body: str) -> str:
+    """fixture txt 首行常已是标题，避免 PDF 里重复一行。"""
+    text = body.strip()
+    if not title.strip():
+        return text
+    first = text.split("\n", 1)[0].strip()
+    if first == title.strip():
+        return text
+    return f"{title.strip()}\n\n{text}"
+
+
+def _wrap_text_line(text: str, font: "fitz.Font", fontsize: float, max_width: float) -> list[str]:
+    if not text:
+        return [""]
+    lines: list[str] = []
+    current = ""
+    for ch in text:
+        trial = current + ch
+        if font.text_length(trial, fontsize=fontsize) <= max_width:
+            current = trial
+        else:
+            if current:
+                lines.append(current)
+            current = ch
+    if current:
+        lines.append(current)
+    return lines or [""]
+
+
 def text_to_pdf(out_path: Path, title: str, body: str) -> None:
+    """将 fixture 文本写入 PDF：TextWriter 嵌入 CJK 字体 + 换行 + 分页。"""
     import fitz
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    doc = fitz.open()
-    page = doc.new_page(width=595, height=842)
-    content = f"{title}\n\n{body.strip()}"
+    content = _fixture_pdf_content(title, body)
     font = _cjk_font()
+
+    page_w, page_h = 595.0, 842.0
+    margin = 50.0
+    fontsize = 11.0
+    line_height = fontsize * 1.45
+    max_width = page_w - 2 * margin
+    bottom = page_h - margin
+
+    doc = fitz.open()
+    page = doc.new_page(width=page_w, height=page_h)
     writer = fitz.TextWriter(page.rect)
-    y = 50
+    y = margin
+
+    def _flush_page() -> None:
+        nonlocal page, writer, y
+        writer.write_text(page)
+        page = doc.new_page(width=page_w, height=page_h)
+        writer = fitz.TextWriter(page.rect)
+        y = margin
+
     for para in content.split("\n"):
-        line = para.strip()
-        if not line:
-            y += 10
+        stripped = para.strip()
+        if not stripped:
+            y += line_height * 0.6
+            if y > bottom:
+                _flush_page()
             continue
-        writer.append((50, y), line, font=font, fontsize=11)
-        y += 16
+        for visual_line in _wrap_text_line(stripped, font, fontsize, max_width):
+            if y + line_height > bottom:
+                _flush_page()
+            writer.append((margin, y), visual_line, font=font, fontsize=fontsize)
+            y += line_height
+
     writer.write_text(page)
     doc.save(str(out_path))
     doc.close()
@@ -181,7 +225,7 @@ def setup_eval_kb_inprocess() -> str:
     state = {
         "kb_id": kb_id,
         "kb_name": KB_NAME,
-        "fixtures_version": "v1",
+        "fixtures_version": "v2",
         "email": EVAL_EMAIL,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -265,11 +309,49 @@ def setup_eval_kb_http(base_url: str) -> str:
     for jid in dict.fromkeys(job_ids):
         run_index_job(jid)
 
-    save_state({"kb_id": kb_id, "kb_name": KB_NAME, "fixtures_version": "v1", "email": EVAL_EMAIL})
+    save_state({"kb_id": kb_id, "kb_name": KB_NAME, "fixtures_version": "v2", "email": EVAL_EMAIL})
     return kb_id
 
 
-def chat_direct(kb_id: str, question: str, chat_mode: str = "fast") -> tuple[str, int, int, str | None]:
+def _eval_retrieve_docs_and_top1_l2(
+    vectorstore,
+    question: str,
+    *,
+    search_k: int,
+    metadata_filter,
+) -> tuple[list, float | None]:
+    """与线上一致的检索；返回 (过滤后 docs, 过滤前 top1 L2，越小越相似)。"""
+    from docpaws.usecases.chat_service import (
+        _filter_scored_pairs,
+        _resolve_retrieval_fetch_k,
+        docs_from_scored_pairs,
+    )
+
+    fetch_k = _resolve_retrieval_fetch_k(vectorstore, search_k, metadata_filter)
+    if hasattr(vectorstore, "similarity_search_with_score"):
+        pairs = vectorstore.similarity_search_with_score(
+            question,
+            k=search_k,
+            filter=metadata_filter,
+            fetch_k=fetch_k,
+        )
+    else:
+        raw = vectorstore.similarity_search(
+            question,
+            k=search_k,
+            filter=metadata_filter,
+            fetch_k=fetch_k,
+        )
+        pairs = [(d, 0.0) for d in raw]
+    top1 = min((float(s) for _, s in pairs), default=None) if pairs else None
+    filtered = _filter_scored_pairs(pairs)
+    docs = docs_from_scored_pairs(filtered, limit=search_k)
+    return docs, top1
+
+
+def chat_direct(
+    kb_id: str, question: str, chat_mode: str = "fast"
+) -> tuple[str, int, int, str | None, float | None]:
     """直连检索 + LLM（与 query_knowledge_base 一致），评估更稳定。"""
     _ensure_backend_path()
     _load_dotenv()
@@ -284,15 +366,15 @@ def chat_direct(kb_id: str, question: str, chat_mode: str = "fast") -> tuple[str
     from docpaws.usecases.chat_scope import (
         build_faiss_filter,
         document_ids_for_scope,
-        retrieval_cache_scope_token,
+        document_title_for_id,
         retrieval_filter_for_question,
         scope_cache_token,
     )
     from docpaws.usecases.chat_service import (
+        INSUFFICIENT_RETRIEVAL_MSG,
         build_prompt,
         build_retriever,
         get_citations_from_docs,
-        retrieve_scoped_docs_cached,
     )
 
     cfg = get_default_config()
@@ -303,22 +385,20 @@ def chat_direct(kb_id: str, question: str, chat_mode: str = "fast") -> tuple[str
     with Session(engine) as session:
         user = session.exec(select(User).where(User.email == EVAL_EMAIL)).first()
         if not user:
-            return "", 0, int((time.perf_counter() - t0) * 1000), "eval user not found; run --setup-only"
+            return "", 0, int((time.perf_counter() - t0) * 1000), "eval user not found; run --setup-only", None
 
         artifact = get_active_index_artifact(session, kb_id)
         if not artifact:
-            return "", 0, int((time.perf_counter() - t0) * 1000), "INDEX_NOT_READY"
+            return "", 0, int((time.perf_counter() - t0) * 1000), "INDEX_NOT_READY", None
 
         scope_type, scope_id = "kb", None
         doc_ids = document_ids_for_scope(session, kb_id=kb_id, scope_type=scope_type, scope_id=scope_id)
         metadata_filter = build_faiss_filter(doc_ids)
-        scope_token = scope_cache_token(scope_type, scope_id)
-        artifact_id = getattr(artifact, "id", "") or str(getattr(artifact, "version", ""))
 
         try:
             _, vectorstore = build_retriever(artifact.index_path)
         except FileNotFoundError:
-            return "", 0, int((time.perf_counter() - t0) * 1000), "INDEX_FILE_NOT_FOUND"
+            return "", 0, int((time.perf_counter() - t0) * 1000), "INDEX_FILE_NOT_FOUND", None
 
         meta_filter, named_doc_id = retrieval_filter_for_question(
             session,
@@ -328,24 +408,18 @@ def chat_direct(kb_id: str, question: str, chat_mode: str = "fast") -> tuple[str
             base_filter=metadata_filter,
             text=question,
         )
-        docs = retrieve_scoped_docs_cached(
-            kb_id=kb_id,
-            question=question,
+        docs, top1_l2 = _eval_retrieve_docs_and_top1_l2(
+            vectorstore,
+            question,
             search_k=search_k,
             metadata_filter=meta_filter,
-            vectorstore=vectorstore,
-            cache_redis=None,
-            artifact_id=artifact_id,
-            scope_token=retrieval_cache_scope_token(scope_token, named_doc_id),
         )
-        from docpaws.usecases.chat_service import INSUFFICIENT_RETRIEVAL_MSG
+        latency_ms = int((time.perf_counter() - t0) * 1000)
 
         if not docs:
-            return INSUFFICIENT_RETRIEVAL_MSG, 0, int((time.perf_counter() - t0) * 1000), None
+            return INSUFFICIENT_RETRIEVAL_MSG, 0, latency_ms, None, top1_l2
 
         context_str = "\n\n".join(d.page_content for d in docs)
-        from docpaws.usecases.chat_scope import document_title_for_id
-
         target_title = document_title_for_id(session, named_doc_id) if named_doc_id else None
         prompt = build_prompt("", context_str, question, target_document=target_title)
         llm = create_chat_llm(model_name=model_name, chat_mode=chat_mode)
@@ -353,10 +427,10 @@ def chat_direct(kb_id: str, question: str, chat_mode: str = "fast") -> tuple[str
             resp = llm.invoke(prompt)
             text = (getattr(resp, "content", None) or str(resp)).strip() or "未能生成回答。"
         except Exception as e:
-            return "", 0, int((time.perf_counter() - t0) * 1000), str(e)
+            return "", 0, latency_ms, str(e), top1_l2
 
         citations = get_citations_from_docs(docs, session)
-        return text, len(citations), int((time.perf_counter() - t0) * 1000), None
+        return text, len(citations), latency_ms, None, top1_l2
 
 
 def chat_inprocess(client, kb_id: str, question: str, chat_mode: str = "fast") -> tuple[str, int, int, str | None]:
@@ -454,8 +528,9 @@ def run_eval(
     for item in golden:
         qid = item["id"]
         question = item["question"]
+        top1_l2: float | None = None
         if eval_mode == "direct" and not use_http:
-            answer, cit_n, latency_ms, err = chat_direct(kb_id, question, chat_mode)
+            answer, cit_n, latency_ms, err, top1_l2 = chat_direct(kb_id, question, chat_mode)
         elif eval_mode == "agent" and use_http:
             answer, cit_n, latency_ms, err = chat_http(http_sess, kb_id, question, chat_mode)
         elif eval_mode == "agent":
@@ -488,6 +563,7 @@ def run_eval(
                 "question": question,
                 "answer": answer[:2000],
                 "citation_count": cit_n,
+                "top1_l2": "" if top1_l2 is None else round(top1_l2, 4),
                 "latency_ms": latency_ms,
                 "pass": ok,
                 "reason": reason,
@@ -495,7 +571,8 @@ def run_eval(
             }
         )
         status = "PASS" if ok else "FAIL"
-        print(f"  [{status}] {qid} ({latency_ms}ms) {reason}")
+        l2_hint = f" top1_l2={top1_l2:.4f}" if top1_l2 is not None else ""
+        print(f"  [{status}] {qid} ({latency_ms}ms){l2_hint} {reason}")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = list(rows_out[0].keys()) if rows_out else []
