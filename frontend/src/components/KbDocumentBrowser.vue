@@ -45,13 +45,8 @@
             decoding="async"
             @error="markThumbFailed(item.docId)"
           />
-          <svg v-else-if="item.kind === 'folder'" width="29" height="29" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-          </svg>
-          <svg v-else width="29" height="29" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/>
-          </svg>
+          <IconFolder v-else-if="item.kind === 'folder'" :size="29" />
+          <IconFile v-else :size="29" />
         </div>
         <div class="file-name">{{ item.name }}</div>
         <div class="file-meta">
@@ -77,13 +72,8 @@
         @dblclick="handleCardDblClick(item)"
       >
         <div class="list-name">
-          <svg v-if="item.kind === 'folder'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display: inline; vertical-align: middle; margin-right: 6px">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-          </svg>
-          <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display: inline; vertical-align: middle; margin-right: 6px">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/>
-          </svg>
+          <IconFolder v-if="item.kind === 'folder'" :size="16" class="list-icon" />
+          <IconFile v-else :size="16" class="list-icon" />
           {{ item.name }}
         </div>
         <div class="list-meta">
@@ -116,6 +106,8 @@
 
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
+import IconFile from './icons/IconFile.vue'
+import IconFolder from './icons/IconFolder.vue'
 import type { KbBrowseCard } from '../types/kbBrowseCard'
 
 export type { KbBrowseCard }
@@ -236,6 +228,13 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside))
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.list-icon {
+  flex-shrink: 0;
 }
 
 .list-meta {

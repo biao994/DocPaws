@@ -12,44 +12,21 @@
     </div>
     <div class="content-actions">
       <div v-if="showSearch" class="search-pill">
-        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="6"></circle>
-          <line x1="16" y1="16" x2="21" y2="21"></line>
-        </svg>
+        <IconSearch :size="16" class="search-icon" />
         <input class="search-input-main" v-model="searchQuery" placeholder="在知识库中搜索" />
         <button class="search-clear-x" type="button" title="收起搜索" @click="emit('toggleSearch')">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
+          <IconClose :size="14" />
         </button>
       </div>
       <button v-else type="button" class="toolbar-btn" title="搜索" @click="emit('toggleSearch')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="6"></circle>
-          <line x1="16" y1="16" x2="21" y2="21"></line>
-        </svg>
+        <IconSearch :size="16" />
       </button>
       <button type="button" class="toolbar-btn" title="视图切换" @click="emit('toggleViewMode')">
-        <svg v-if="viewMode === 'grid'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="3" width="7" height="7"></rect>
-          <rect x="14" y="3" width="7" height="7"></rect>
-          <rect x="14" y="14" width="7" height="7"></rect>
-          <rect x="3" y="14" width="7" height="7"></rect>
-        </svg>
-        <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="4" y1="6" x2="20" y2="6"></line>
-          <line x1="4" y1="12" x2="20" y2="12"></line>
-          <line x1="4" y1="18" x2="20" y2="18"></line>
-        </svg>
+        <IconGrid v-if="viewMode === 'grid'" :size="16" />
+        <IconList v-else :size="16" />
       </button>
       <button type="button" class="toolbar-btn" :title="`排序：${sortLabel}`" @click="emit('toggleSortMode')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M6 4l-3 3h6l-3-3z"></path>
-          <path d="M6 20l3-3H3l3 3z"></path>
-          <line x1="12" y1="7" x2="21" y2="7"></line>
-          <line x1="12" y1="17" x2="21" y2="17"></line>
-        </svg>
+        <IconSort :size="16" />
       </button>
       <div class="upload-menu-wrap">
         <button
@@ -60,10 +37,7 @@
           :title="uploadEnabled ? '上传/新建' : '请先选择知识库'"
           @click="uploadEnabled && emit('toggleUploadMenu')"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 5v14"></path>
-            <path d="M5 12h14"></path>
-          </svg>
+          <IconPlus :size="16" />
         </button>
         <div v-if="showUploadMenu" class="upload-menu">
           <button type="button" class="upload-menu-item" @click="emit('openFile')">本地文件</button>
@@ -86,6 +60,12 @@
 </template>
 
 <script setup lang="ts">
+import IconClose from './icons/IconClose.vue'
+import IconGrid from './icons/IconGrid.vue'
+import IconList from './icons/IconList.vue'
+import IconPlus from './icons/IconPlus.vue'
+import IconSearch from './icons/IconSearch.vue'
+import IconSort from './icons/IconSort.vue'
 import UploadProgressPanel from './UploadProgressPanel.vue'
 import KbPathBreadcrumb from './KbPathBreadcrumb.vue'
 import type { PathCrumb } from '../composables/useKbPathNavigation'
@@ -219,17 +199,10 @@ const emit = defineEmits<{
   background: #f5f5f5;
 }
 
-.upload-menu-divider {
-  height: 1px;
-  background: #f0f0f0;
-  margin: 4px 6px;
-}
-
 .search-pill {
   display: flex;
   align-items: center;
   gap: 8px;
-  /* 原来偏长：缩到约 1/3 */
   width: min(320px, 14vw);
   padding: 6px 10px;
   border: 1px solid #e8e8e8;

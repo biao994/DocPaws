@@ -2,15 +2,15 @@
   <div class="sidebar-middle" :class="{ collapsed: collapsed }">
     <div class="sidebar-header">
       <button type="button" class="sidebar-header-collapse" title="收起侧栏" @click="emit('toggleCollapse')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="15 18 9 12 15 6"></polyline>
-        </svg>
+        <IconChevronLeft :size="14" />
       </button>
     </div>
     <div class="folder-tree">
       <div class="tree-section-title-row first-section">
         <div class="tree-section-title">个人知识库</div>
-        <button type="button" class="tree-plus-btn" title="新建知识库" @click.stop="emit('createKb')">+</button>
+        <button type="button" class="tree-plus-btn" title="新建知识库" @click.stop="emit('createKb')">
+          <IconPlus :size="14" />
+        </button>
       </div>
       <div
         v-for="kb in knowledgeBases"
@@ -20,9 +20,7 @@
         @click="emit('selectKb', kb)"
       >
         <div class="tree-arrow"></div>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-        </svg>
+        <IconFolder :size="16" class="tree-kb-icon" />
         <span class="tree-kb-name">{{ kb.name }}</span>
         <span class="tree-kb-menu-wrap" @click.stop>
           <button
@@ -44,7 +42,6 @@
         </span>
       </div>
     </div>
-    <!-- 暂隐藏：占位容量与当前知识库（后端未接统计 API） -->
     <div v-if="false" class="storage-info">
       已使用 1.2GB / 10GB
       <div class="storage-bar">
@@ -54,22 +51,24 @@
     </div>
   </div>
   <button v-if="collapsed" type="button" class="sidebar-return-btn" title="返回侧栏" @click="emit('toggleCollapse')">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <polyline points="9 6 15 12 9 18"></polyline>
-    </svg>
+    <IconChevronRight :size="14" />
   </button>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
-/** 与 PersonalKbView 中 Kb 一致，便于点击整行回传 */
+
+import IconChevronLeft from './icons/IconChevronLeft.vue'
+import IconChevronRight from './icons/IconChevronRight.vue'
+import IconFolder from './icons/IconFolder.vue'
+import IconPlus from './icons/IconPlus.vue'
+
 export type KbSidebarItem = { id: string; name: string; created_at: string }
 
 defineProps<{
   collapsed: boolean
   knowledgeBases: KbSidebarItem[]
   selectedKbId: string | null
-  /** 非空表示正在浏览某文件夹，根级知识库项不高亮 */
   selectedFolderId: string | null
   currentKbLabel?: string | null
 }>()
@@ -182,6 +181,15 @@ const toggleKbMenu = (id: string) => {
   font-weight: 600;
 }
 
+.tree-kb-icon {
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.tree-item.active .tree-kb-icon {
+  color: var(--dp-primary);
+}
+
 .tree-kb-name {
   flex: 1;
   min-width: 0;
@@ -250,17 +258,6 @@ const toggleKbMenu = (id: string) => {
   color: var(--dp-danger-text, #6b7280);
 }
 
-.tree-empty {
-  padding: 6px 12px 10px;
-  font-size: 12px;
-  color: #94a3b8;
-}
-
-.tree-item-child {
-  padding-left: 30px;
-  font-size: 13px;
-}
-
 .tree-section-title {
   margin-top: 14px;
   padding: 8px 0 4px;
@@ -302,9 +299,6 @@ const toggleKbMenu = (id: string) => {
   color: #6b7280;
   cursor: pointer;
   padding: 0;
-  line-height: 22px;
-  font-size: 15px;
-  font-weight: 500;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -314,26 +308,6 @@ const toggleKbMenu = (id: string) => {
 .tree-plus-btn:hover {
   background: #f0f0f0;
   color: #18a058;
-}
-
-.tree-subtitle {
-  padding: 4px 12px;
-  font-size: 12px;
-  color: #94a3b8;
-}
-
-.tree-item-disabled {
-  opacity: 0.8;
-}
-
-.tree-item svg {
-  width: 16px;
-  height: 16px;
-  color: #94a3b8;
-}
-
-.tree-item.active svg {
-  color: var(--dp-primary);
 }
 
 .tree-arrow {

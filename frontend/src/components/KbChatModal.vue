@@ -5,51 +5,16 @@
         <div class="chat-modal-title">{{ modalTitle }}</div>
         <div class="chat-modal-actions">
           <button class="chat-modal-icon-btn" title="新建会话" type="button" @click="emit('newConversation')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <line x1="12" y1="5" x2="12" y2="19"/>
-              <line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
+            <IconPlus :size="14" :stroke-width="1.5" />
           </button>
           <button class="chat-modal-icon-btn" title="查看历史" type="button" @click="emit('toggleHistory')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="12" cy="12" r="10"/>
-              <polyline points="12 6 12 12 16 14"/>
-            </svg>
+            <IconClock :size="14" :stroke-width="1.5" />
           </button>
           <button class="chat-modal-icon-btn" title="放大/还原" type="button" @click="emit('toggleExpand')">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.6"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <g v-if="expanded">
-                <!-- 还原（缩小）：对角箭头朝内 -->
-                <line x1="20" y1="4" x2="14" y2="10" />
-                <polyline points="16 10 14 10 14 8" />
-
-                <line x1="4" y1="20" x2="10" y2="14" />
-                <polyline points="8 14 10 14 10 16" />
-              </g>
-              <g v-else>
-                <!-- 进入全屏（放大）：四角展开 -->
-                <path d="M8 3H5a2 2 0 0 0-2 2v3" />
-                <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
-                <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
-                <path d="M3 16v3a2 2 0 0 0 2 2h3" />
-              </g>
-            </svg>
+            <IconExpand :expanded="expanded" />
           </button>
           <button class="chat-modal-icon-btn" title="关闭" type="button" @click="emit('close')">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <line x1="18" y1="6" x2="6" y2="18"/>
-              <line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
+            <IconClose :size="14" />
           </button>
         </div>
       </div>
@@ -112,6 +77,10 @@
 <script setup lang="ts">
 import ComposerBox from './ComposerBox.vue'
 import ChatMessageList from './ChatMessageList.vue'
+import IconClock from './icons/IconClock.vue'
+import IconClose from './icons/IconClose.vue'
+import IconExpand from './icons/IconExpand.vue'
+import IconPlus from './icons/IconPlus.vue'
 import type { ChatModalMessage } from './ChatMessageList.vue'
 import type { ChatCitation } from '../api/chatTypes'
 

@@ -5,7 +5,7 @@
       :settings-open="showSettings"
       :display-name="kbUserDisplayName"
       @toggle-settings="toggleSettings"
-      @navigate-home="() => navigate('home')"
+      @navigate-home="goHome"
       @logout="handleLogout"
     />
 
@@ -40,9 +40,11 @@
           @send="sendModalQuestion"
           @attachment="openAttachmentDialog"
         />
-        <template v-else>
-        <KbContentToolbar
+        <PersonalKbBrowsePane
+          v-else
           v-model:search-query="searchQuery"
+          v-model:composer-input="questionInput"
+          v-model:modal-input="modalInput"
           :path-crumbs="pathCrumbs"
           :can-go-back="pathCanGoBack"
           :can-go-forward="pathCanGoForward"
@@ -53,6 +55,25 @@
           :upload-tasks="uploadTasks"
           :show-upload-progress-panel="uploadProgressPanelOpen"
           :upload-enabled="!!selectedKb"
+          :items="visibleCards"
+          :empty-message="selectedFolderId ? '当前文件夹为空' : '暂无文件夹或文件'"
+          :file-scope-active="!!selectedDoc"
+          :selected-doc-id="selectedDoc?.id ?? null"
+          :get-thumbnail-src="getDocumentThumbnailSrc"
+          :has-kb="!!selectedKb"
+          :attachment-name="attachmentFileName || undefined"
+          :composer-placeholder="browserInputPlaceholder"
+          :show-chat-modal="showChatModal"
+          :chat-modal-title="chatModalTitle"
+          :modal-expanded="modalExpanded"
+          :show-modal-history-panel="showModalHistoryPanel"
+          :modal-messages="modalMessages"
+          :modal-conversation-groups="modalConversationGroups"
+          :modal-conversation-id="modalConversationId"
+          :open-conversation-menu-id="openConversationMenuId"
+          :modal-is-streaming="modalIsStreaming"
+          :modal-streaming-assistant-id="modalStreamingAssistantId"
+          :modal-input-placeholder="modalInputPlaceholder"
           @path-back="handlePathBack"
           @path-forward="handlePathForward"
           @path-navigate="handlePathNavigate"
@@ -65,64 +86,31 @@
           @create-folder="createFolder"
           @close-upload-progress-panel="handleCloseUploadProgressPanel"
           @cancel-upload-task="handleCancelUploadTask"
-        />
-
-        <KbDocumentBrowser
-          :view-mode="viewMode"
-          :items="visibleCards"
-          :empty-message="selectedFolderId ? '当前文件夹为空' : '暂无文件夹或文件'"
-          :file-scope-active="!!selectedDoc"
-          :selected-doc-id="selectedDoc?.id ?? null"
-          :get-thumbnail-src="getDocumentThumbnailSrc"
           @open-card="openCard"
           @select-file="selectFileInGrid"
-          @open-file="openFileReader"
+          @open-file-reader="openFileReader"
           @rename-item="renameItem"
           @delete-item="deleteItem"
           @download-doc="downloadDoc"
-        />
-
-        <KbMainComposerBar
-          v-model="questionInput"
-          :has-kb="!!selectedKb"
-          :attachment-name="selectedAttachmentName || undefined"
-          :placeholder="browserInputPlaceholder"
-          @focus="openChatModalFromInput"
-          @send="sendQuestion"
-          @attachment="openAttachmentDialog"
+          @composer-focus="openChatModalFromInput"
+          @composer-send="sendQuestion"
+          @composer-attachment="openAttachmentDialog"
           @clear-attachment="clearAttachment"
-        />
-
-        <KbChatModal
-          v-if="showChatModal"
-          v-model="modalInput"
-          :modal-title="chatModalTitle"
-          :expanded="modalExpanded"
-          :show-history="showModalHistoryPanel"
-          :messages="modalMessages"
-          :conversation-groups="modalConversationGroups"
-          :active-conversation-id="modalConversationId"
-          :open-conversation-menu-id="openConversationMenuId"
-          :is-streaming="modalIsStreaming"
-          :pending-assistant-id="modalStreamingAssistantId"
-          :composer-placeholder="modalInputPlaceholder"
-          @close="closeChatModal"
-          @new-conversation="newModalConversation"
-          @toggle-history="toggleModalHistory"
-          @toggle-expand="toggleModalExpand"
-          @select-conversation="openModalConversation"
+          @close-chat-modal="closeChatModal"
+          @new-modal-conversation="newModalConversation"
+          @toggle-modal-history="toggleModalHistory"
+          @toggle-modal-expand="toggleModalExpand"
+          @open-modal-conversation="openModalConversation"
           @toggle-conversation-menu="toggleConversationMenu"
-          @rename-conversation="renameModalConversation"
-          @delete-conversation="deleteModalConversation"
-          @send="sendModalQuestion"
-          @attachment="openAttachmentDialog"
+          @rename-modal-conversation="renameModalConversation"
+          @delete-modal-conversation="deleteModalConversation"
+          @send-modal-question="sendModalQuestion"
         />
-        </template>
       </div>
     </div>
     <input ref="fileInput" type="file" style="display:none" accept=".pdf,application/pdf" @change="handlePdfFileChange" />
     <input ref="folderInput" type="file" style="display:none" accept=".pdf,application/pdf" webkitdirectory directory multiple @change="handlePdfFolderChange" />
-    <input ref="attachmentInput" type="file" style="display:none" @change="handleAttachmentChange" />
+    <input ref="attachmentInputRef" type="file" style="display:none" @change="onAttachmentChange" />
 
     <NameConflictDialog
       v-if="showNameConflictModal"
@@ -134,30 +122,14 @@
       @keep-all="resolveNameConflictKeepAll"
     />
 
-    <div v-if="showCreateKbModal" class="create-kb-mask" @click.self="closeCreateKbModal">
-      <div class="create-kb-dialog">
-        <div class="create-kb-title">新建个人知识库</div>
-        <p class="create-kb-desc">将创建归属于当前账号的知识库，可随后上传文档并与 AI 对话。</p>
-        <input
-          v-model="newKbName"
-          class="create-kb-input"
-          type="text"
-          placeholder="知识库名称，例如「项目资料」"
-          maxlength="120"
-          :disabled="createKbSubmitting"
-          @keyup.enter="submitCreateKb"
-        />
-        <p v-if="createKbError" class="create-kb-error">{{ createKbError }}</p>
-        <div class="create-kb-actions">
-          <button type="button" class="create-kb-btn secondary" :disabled="createKbSubmitting" @click="closeCreateKbModal">
-            取消
-          </button>
-          <button type="button" class="create-kb-btn primary" :disabled="createKbSubmitting" @click="submitCreateKb">
-            {{ createKbSubmitting ? '创建中…' : '创建' }}
-          </button>
-        </div>
-      </div>
-    </div>
+    <CreateKbDialog
+      :open="createKbOpen"
+      v-model:name="createKbName"
+      :error="createKbError"
+      :submitting="createKbSubmitting"
+      @close="closeCreateKbModal"
+      @submit="submitCreateKb"
+    />
 
   </div>
 </template>
@@ -166,42 +138,35 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import PersonalKbTopBar from '../components/PersonalKbTopBar.vue'
 import KbSidebarTree from '../components/KbSidebarTree.vue'
-import KbMainComposerBar from '../components/KbMainComposerBar.vue'
-import KbChatModal from '../components/KbChatModal.vue'
 import PdfReaderWithChat from '../components/PdfReaderWithChat.vue'
 import NameConflictDialog from '../components/NameConflictDialog.vue'
-import KbContentToolbar from '../components/KbContentToolbar.vue'
-import KbDocumentBrowser from '../components/KbDocumentBrowser.vue'
+import CreateKbDialog from '../components/kb/CreateKbDialog.vue'
+import PersonalKbBrowsePane from '../components/kb/PersonalKbBrowsePane.vue'
 import type { KbBrowseCard } from '../types/kbBrowseCard'
+import { useAppNavigation } from '../composables/useAppNavigation'
+import { useAttachmentPicker } from '../composables/useAttachmentPicker'
+import { useCreateKb } from '../composables/useCreateKb'
 import { useKbBrowseListing, type KbBrowseListingDoc } from '../composables/useKbBrowseListing'
 import { useKbPathNavigation, type PathCrumb } from '../composables/useKbPathNavigation'
 import { createKbFolder, deleteKbFolder, listKbFolders, renameKbFolder, type KbFolderSummary } from '../api/folders'
 import { useKbPersonalUpload } from '../composables/useKbPersonalUpload'
+import { useKbBrowseActions } from '../composables/useKbBrowseActions'
 import { useKbModalChat } from '../composables/useKbModalChat'
 import { scopeInputPlaceholder } from '../api/chatScope'
 import { consumeOpenFileChat } from '../utils/openFileChat'
 import { logout as authLogout } from '../api/auth'
 import { clearSession, currentUser } from '../auth/session'
-import { createKnowledgeBase, deleteKnowledgeBase, listKnowledgeBases, renameKnowledgeBase } from '../api/kb'
-import {
-  deleteDocument,
-  documentThumbnailUrl,
-  downloadDocumentBlob,
-  listKbDocuments,
-  renameDocument,
-} from '../api/documents'
+import { deleteKnowledgeBase, listKnowledgeBases, renameKnowledgeBase } from '../api/kb'
+import { documentThumbnailUrl, listKbDocuments } from '../api/documents'
 
-type ViewName = 'home' | 'kb' | 'history'
 type Kb = { id: string; name: string; created_at: string }
 type Doc = KbBrowseListingDoc
+const { goHome } = useAppNavigation()
 const getDocumentThumbnailSrc = (docId?: string) => (docId ? documentThumbnailUrl(docId) : '')
 const getPdfReaderSrc = (docId?: string) => {
   if (!docId) return ''
   return `/api/v1/documents/${docId}/file#page=1&toolbar=0&navpanes=0&scrollbar=0&statusbar=0&messages=0&view=FitH`
 }
-const emit = defineEmits<{
-  (e: 'navigate', view: ViewName): void
-}>()
 
 const middleCollapsed = ref(false)
 const showSettings = ref(false)
@@ -215,9 +180,7 @@ const kbFolders = ref<KbFolderSummary[]>([])
 const selectedDoc = ref<Doc | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const folderInput = ref<HTMLInputElement | null>(null)
-const attachmentInput = ref<HTMLInputElement | null>(null)
 const questionInput = ref('')
-const selectedAttachmentName = ref('')
 const showSearch = ref(false)
 const searchQuery = ref('')
 const sortMode = ref<'created_desc' | 'created_asc' | 'name_asc' | 'name_desc'>('created_desc')
@@ -225,10 +188,14 @@ const showUploadMenu = ref(false)
 const uploadSessionActive = ref(false)
 const uploadSessionKbId = ref<string | null>(null)
 const uploadSessionFolderId = ref<string | null>(null)
-const showCreateKbModal = ref(false)
-const newKbName = ref('')
-const createKbError = ref('')
-const createKbSubmitting = ref(false)
+
+const {
+  inputRef: attachmentInputRef,
+  fileName: attachmentFileName,
+  open: openAttachmentDialog,
+  clear: clearAttachment,
+  onChange: onAttachmentChange,
+} = useAttachmentPicker()
 
 // 先按“个人知识库”展示全部知识库（共享分区暂不做）
 const personalKbs = computed(() => knowledgeBases.value || [])
@@ -365,10 +332,6 @@ function onScopeRestored(scope: {
     return
   }
   selectKbScope()
-}
-
-const navigate = (view: ViewName) => {
-  emit('navigate', view)
 }
 
 const toggleMiddleSidebar = () => {
@@ -523,6 +486,41 @@ const {
   onScopeRestored,
 })
 
+const { renameItem, deleteItem, downloadDoc } = useKbBrowseActions({
+  selectedKb,
+  selectedFolderId,
+  selectedDoc,
+  previewDoc,
+  showPreviewModal,
+  kbFolders,
+  documents,
+  directDocsInFolder,
+  pathNavigateTo,
+  loadDocuments,
+  loadFolders,
+  markKbSessionsStale,
+})
+
+const {
+  open: createKbOpen,
+  name: createKbName,
+  error: createKbError,
+  submitting: createKbSubmitting,
+  openDialog: openCreateKbDialog,
+  closeDialog: closeCreateKbModal,
+  submit: submitCreateKb,
+} = useCreateKb(async (kbId) => {
+  await loadKnowledgeBases({ selectKbId: kbId })
+  resetPathHistory(null)
+  markKbSessionsStale()
+  await loadDocuments()
+})
+
+const openCreateKbModal = () => {
+  showUploadMenu.value = false
+  openCreateKbDialog()
+}
+
 const browserInputPlaceholder = computed(() => scopeInputPlaceholder(getChatScope()))
 const modalInputPlaceholder = computed(() => scopeInputPlaceholder(effectiveScope.value))
 
@@ -587,45 +585,6 @@ const deleteKbFromSidebar = async (kb: Kb) => {
     selectedDoc.value = null
     markKbSessionsStale()
     await loadDocuments()
-  }
-}
-
-const openCreateKbModal = () => {
-  showUploadMenu.value = false
-  newKbName.value = ''
-  createKbError.value = ''
-  showCreateKbModal.value = true
-}
-
-const closeCreateKbModal = () => {
-  if (createKbSubmitting.value) return
-  showCreateKbModal.value = false
-}
-
-const submitCreateKb = async () => {
-  const name = newKbName.value.trim()
-  if (!name) {
-    createKbError.value = '请输入知识库名称'
-    return
-  }
-  createKbSubmitting.value = true
-  createKbError.value = ''
-  try {
-    const kb = await createKnowledgeBase(name)
-    showCreateKbModal.value = false
-    newKbName.value = ''
-    await loadKnowledgeBases({ selectKbId: kb.id })
-    resetPathHistory(null)
-    markKbSessionsStale()
-    await loadDocuments()
-  } catch (e: unknown) {
-    const ax = e as { response?: { data?: { user_hint?: string; message?: string } } }
-    createKbError.value =
-      ax.response?.data?.user_hint ||
-      ax.response?.data?.message ||
-      (e instanceof Error ? e.message : '创建失败，请稍后重试')
-  } finally {
-    createKbSubmitting.value = false
   }
 }
 
@@ -763,127 +722,15 @@ const handleCancelUploadTask = async (taskId: string) => {
   await cancelUploadTask(task)
 }
 
-const openAttachmentDialog = () => {
-  attachmentInput.value?.click()
-}
-
-const handleAttachmentChange = (e: Event) => {
-  const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  selectedAttachmentName.value = file?.name || ''
-  input.value = ''
-}
-
-const clearAttachment = () => {
-  selectedAttachmentName.value = ''
-}
-
-const getDocById = (docId: string) => documents.value.find((d) => d.id === docId) || null
-
-const updateDocTitle = async (docId: string, newTitle: string) => {
-  await renameDocument(docId, newTitle)
-}
-
-const renameItem = async (item: KbBrowseCard) => {
-  const newName = prompt('请输入新名称', item.name)?.trim()
-  if (!newName) return
-  try {
-    if (item.kind === 'file' && item.docId) {
-      await updateDocTitle(item.docId, newName)
-    } else if (item.kind === 'folder' && item.folderId && selectedKb.value) {
-      await renameKbFolder(selectedKb.value.id, item.folderId, newName)
-      if (selectedFolderId.value === item.folderId) {
-        await loadFolders()
-      }
-    }
-    await loadDocuments()
-  } catch (error) {
-    console.error('Rename failed:', error)
-    alert('重命名失败')
-  }
-}
-
-const deleteItem = async (item: KbBrowseCard) => {
-  if (item.kind === 'file' && item.docId) {
-    await deleteDoc(item.docId)
-    return
-  }
-  if (!item.folderId || !selectedKb.value) return
-  const docsInFolder = directDocsInFolder(item.folderId)
-  if (docsInFolder.length > 0) {
-    if (!confirm(`确定删除文件夹“${item.name}”及其 ${docsInFolder.length} 个文件吗？`)) return
-    try {
-      for (const doc of docsInFolder) {
-        await deleteDocument(doc.id)
-      }
-    } catch (error) {
-      console.error('Delete folder files failed:', error)
-      alert('删除文件失败')
-      return
-    }
-  } else if (!confirm(`确定删除空文件夹“${item.name}”吗？`)) {
-    return
-  }
-  try {
-    await deleteKbFolder(selectedKb.value.id, item.folderId)
-    if (selectedFolderId.value === item.folderId) {
-      const deleted = kbFolders.value.find((f) => f.id === item.folderId)
-      pathNavigateTo(deleted?.parent_id ?? null)
-      selectedDoc.value = null
-    }
-    await loadDocuments()
-  } catch (error) {
-    console.error('Delete folder failed:', error)
-    alert('删除文件夹失败')
-  }
-}
-
-const deleteDoc = async (docId: string) => {
-  if (!confirm('确定删除该文件吗？')) return
-  try {
-    await deleteDocument(docId)
-    await loadDocuments()
-    if (selectedDoc.value?.id === docId) {
-      selectedDoc.value = null
-    }
-    if (previewDoc.value?.id === docId) {
-      showPreviewModal.value = false
-      previewDoc.value = null
-      markKbSessionsStale()
-    }
-  } catch (error) {
-    console.error('Delete failed:', error)
-    alert('删除失败，请稍后重试')
-  }
-}
-
-const downloadDoc = async (docId: string) => {
-  try {
-    const res = await downloadDocumentBlob(docId)
-    const blobUrl = window.URL.createObjectURL(res.data)
-    const link = document.createElement('a')
-    const matched = documents.value.find((d) => d.id === docId)
-    link.href = blobUrl
-    link.download = `${matched?.title || 'document'}.pdf`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    window.URL.revokeObjectURL(blobUrl)
-  } catch (error) {
-    console.error('Download failed:', error)
-    alert('下载失败，请稍后重试')
-  }
-}
-
 const sendQuestion = async () => {
   if (!questionInput.value.trim()) return
   await openChatModalFromInput()
   let question = questionInput.value.trim()
-  if (selectedAttachmentName.value) {
-    question = `${question}\n[附件占位] ${selectedAttachmentName.value}`
+  if (attachmentFileName.value) {
+    question = `${question}\n[附件占位] ${attachmentFileName.value}`
   }
   questionInput.value = ''
-  selectedAttachmentName.value = ''
+  clearAttachment()
   void askInModal(question)
 }
 
@@ -973,89 +820,6 @@ onUnmounted(() => {
   background: #fff;
   overflow: hidden;
   position: relative;
-}
-
-.create-kb-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 4000;
-}
-
-.create-kb-dialog {
-  width: min(420px, 92vw);
-  background: #fff;
-  border-radius: 10px;
-  padding: 20px 22px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-}
-
-.create-kb-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #6b7280;
-  margin-bottom: 8px;
-}
-
-.create-kb-desc {
-  font-size: 13px;
-  color: #94a3b8;
-  margin: 0 0 14px;
-  line-height: 1.5;
-}
-
-.create-kb-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 10px 12px;
-  border: 1px solid #e8e8e8;
-  border-radius: 8px;
-  font-size: 14px;
-  outline: none;
-}
-
-.create-kb-input:focus {
-  border-color: var(--dp-primary);
-}
-
-.create-kb-error {
-  margin: 10px 0 0;
-  font-size: 13px;
-  color: #c53030;
-}
-
-.create-kb-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 18px;
-}
-
-.create-kb-btn {
-  min-width: 88px;
-  padding: 8px 14px;
-  border-radius: 8px;
-  font-size: 14px;
-  cursor: pointer;
-  border: none;
-}
-
-.create-kb-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.create-kb-btn.secondary {
-  background: #f5f5f5;
-  color: #6b7280;
-}
-
-.create-kb-btn.primary {
-  background: var(--dp-primary);
-  color: #fff;
 }
 </style>
 

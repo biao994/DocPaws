@@ -8,9 +8,7 @@
         :disabled="!canGoBack"
         @click="emit('back')"
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="15 18 9 12 15 6"></polyline>
-        </svg>
+        <IconChevronLeft :size="16" />
       </button>
       <button
         type="button"
@@ -19,9 +17,7 @@
         :disabled="!canGoForward"
         @click="emit('forward')"
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="9 18 15 12 9 6"></polyline>
-        </svg>
+        <IconChevronRight :size="16" />
       </button>
     </div>
     <span class="path-divider" aria-hidden="true"></span>
@@ -50,6 +46,8 @@
 </template>
 
 <script setup lang="ts">
+import IconChevronLeft from './icons/IconChevronLeft.vue'
+import IconChevronRight from './icons/IconChevronRight.vue'
 import type { PathCrumb } from '../composables/useKbPathNavigation'
 
 defineProps<{

@@ -4,10 +4,7 @@
       <div class="reader-topbar">
         <div class="reader-title" :title="documentTitle || undefined">{{ documentTitle }}</div>
         <button type="button" class="reader-close" title="关闭" @click="emit('close')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
+          <IconClose :size="16" />
         </button>
       </div>
       <iframe class="reader-frame" :src="pdfSrc" title="文件预览" scrolling="no"></iframe>
@@ -39,6 +36,7 @@
 <script setup lang="ts">
 import ChatMessageList from './ChatMessageList.vue'
 import ComposerBox from './ComposerBox.vue'
+import IconClose from './icons/IconClose.vue'
 import type { ChatModalMessage } from './ChatMessageList.vue'
 
 const composerInput = defineModel<string>({ required: true })
