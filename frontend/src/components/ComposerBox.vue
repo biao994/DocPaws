@@ -41,10 +41,7 @@
         </div>
         <div class="composer-right">
           <button class="composer-send-btn" type="button" :disabled="disabledSend" @click="$emit('send')">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <line x1="22" y1="2" x2="11" y2="13"/>
-              <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-            </svg>
+            <IconSend />
           </button>
         </div>
       </div>
@@ -68,6 +65,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useChatMode } from '../composables/useChatMode'
+import IconSend from './icons/IconSend.vue'
 
 const { chatMode, chatModeLabel, toggleChatMode } = useChatMode()
 
