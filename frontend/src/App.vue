@@ -1,44 +1,24 @@
 <template>
   <div v-if="!authReady" class="app-boot">加载中…</div>
   <LoginView v-else-if="!currentUser" @success="onLoginSuccess" />
-  <component :is="currentViewComp" v-else @navigate="handleNavigate" />
+  <RouterView v-else />
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 
 import { authReady, bootAuth, currentUser } from './auth/session'
-import HomeView from './views/HomeView.vue'
-import PersonalKbView from './views/PersonalKbView.vue'
-import HistoryView from './views/HistoryView.vue'
 import LoginView from './views/LoginView.vue'
 
-type ViewName = 'home' | 'kb' | 'history'
-
-const activeView = ref<ViewName>('home')
-
-const currentViewComp = computed(() => {
-  switch (activeView.value) {
-    case 'kb':
-      return PersonalKbView
-    case 'history':
-      return HistoryView
-    case 'home':
-    default:
-      return HomeView
-  }
-})
-
-const handleNavigate = (view: ViewName) => {
-  activeView.value = view
-}
+const router = useRouter()
 
 const onLoginSuccess = () => {
-  activeView.value = 'home'
+  void router.replace({ name: 'home' })
 }
 
 const onGlobalUnauthorized = () => {
-  activeView.value = 'home'
+  void router.replace({ name: 'home' })
 }
 
 onMounted(async () => {
