@@ -3,10 +3,9 @@
 """
 from __future__ import annotations
 
-from datetime import datetime
-
 from sqlmodel import Session, select
 
+from docpaws.domain.datetime_utils import utc_now
 from docpaws.domain.models.document import Document
 from docpaws.domain.models.folder import KbFolder
 
@@ -169,7 +168,7 @@ def list_documents_in_folder_tree(session: Session, kb_id: str, root_folder_id: 
 
 def update_folder_name(session: Session, folder: KbFolder, new_name: str) -> None:
     folder.name = new_name.strip()
-    folder.updated_at = datetime.utcnow()
+    folder.updated_at = utc_now()
     session.add(folder)
 
 

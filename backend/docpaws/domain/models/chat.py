@@ -4,6 +4,8 @@
 from datetime import datetime
 from uuid import uuid4
 
+from docpaws.domain.datetime_utils import utc_now
+
 from sqlmodel import Field, SQLModel
 
 
@@ -18,8 +20,8 @@ class Conversation(SQLModel, table=True):
     title: str = Field(default="新会话", max_length=100)
     scope_type: str = Field(default="kb", description="kb / folder / file")
     scope_id: str | None = Field(default=None, index=True, description="folder_id 或 document_id；整库为空")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
 
 class Message(SQLModel, table=True):
@@ -28,7 +30,7 @@ class Message(SQLModel, table=True):
     role: str = Field(description="user/assistant")
     content: str = Field()
     answer_id: str | None = Field(default=None, index=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class Feedback(SQLModel, table=True):
@@ -37,4 +39,4 @@ class Feedback(SQLModel, table=True):
     user_id: str = Field(index=True)
     rating: str = Field(description="like/dislike")
     comment: str | None = Field(default=None)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)

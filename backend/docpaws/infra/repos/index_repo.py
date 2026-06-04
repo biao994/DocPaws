@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 from sqlmodel import Session, select  # type: ignore
 
+from docpaws.domain.datetime_utils import utc_now
 from docpaws.domain.models.document import Chunk, Document, FileObject, KbFile
 from docpaws.domain.models.index import IndexArtifact, IndexArtifactManifest, IndexJob
 from docpaws.domain.services.manifest_diff import compute_diff
@@ -36,7 +37,7 @@ def _job_last_activity(job: IndexJob) -> datetime:
 
 def is_stale_index_job(job: IndexJob, *, now: datetime | None = None) -> bool:
     """判断 KB 索引任务是否已超时未推进（僵尸 queued / 卡死 running）。"""
-    now = now or datetime.utcnow()
+    now = now or utc_now()
     last = _job_last_activity(job)
     age = (now - last).total_seconds()
     if job.status == "queued":
@@ -51,8 +52,8 @@ def mark_index_job_stale_failed(session: Session, job: IndexJob) -> None:
     prev = job.status
     job.status = "failed"
     job.error_message = f"stale: {prev} exceeded timeout (queued={STALE_QUEUED_SECONDS}s, running={STALE_RUNNING_SECONDS}s)"
-    job.finished_at = datetime.utcnow()
-    job.updated_at = datetime.utcnow()
+    job.finished_at = utc_now()
+    job.updated_at = utc_now()
     session.add(job)
     session.flush()
 
@@ -133,8 +134,8 @@ def mark_index_job_running(session: Session, job_id: str) -> str | None:
     if not job:
         return None
     job.status = "running"
-    job.started_at = datetime.utcnow()
-    job.updated_at = datetime.utcnow()
+    job.started_at = utc_now()
+    job.updated_at = utc_now()
     job.progress = 5
     session.add(job)
     session.flush()
@@ -157,10 +158,10 @@ def update_index_job(
     if status is not None:
         job.status = status
         job.error_message = error_message
-        job.finished_at = datetime.utcnow()
+        job.finished_at = utc_now()
         if status == "succeeded":
             job.progress = 100
-    job.updated_at = datetime.utcnow()
+    job.updated_at = utc_now()
     session.add(job)
 
 
@@ -188,7 +189,7 @@ def create_kb_index_artifact(
     if not new_content_hashes:
         return
 
-    now = datetime.utcnow()
+    now = utc_now()
     for doc_id, chash in new_content_hashes.items():
         n_chunks = len(session.exec(select(Chunk.id).where(Chunk.document_id == doc_id)).all())
         if n_chunks <= 0:

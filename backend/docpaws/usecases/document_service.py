@@ -5,12 +5,12 @@
 """
 import os
 import uuid
-from datetime import datetime
 from typing import Optional
 
 from fastapi import UploadFile
 from sqlmodel import Session
 
+from docpaws.domain.datetime_utils import utc_now
 from docpaws.api.schemas.documents import DocumentData, DocumentDeleteData, UploadData
 from docpaws.domain.models.document import Document, FileObject, KbFile
 from docpaws.errors import AppError
@@ -160,7 +160,7 @@ async def _ingest_one_pdf_create_no_commit(
             if not find_document(session, kb_id, folder_path, doc_title, folder_id=folder_id):
                 break
             base, ext = os.path.splitext(normalized)
-            ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+            ts = utc_now().strftime("%Y%m%d%H%M%S")
             normalized = f"{base}_{ts}{ext}"
             auto_renamed = True
         else:
@@ -358,7 +358,7 @@ async def upload_document(
             if not find_document(session, kb_id, folder_path, doc_title, folder_id=folder_id):
                 break
             base, ext = os.path.splitext(normalized)
-            ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+            ts = utc_now().strftime("%Y%m%d%H%M%S")
             normalized = f"{base}_{ts}{ext}"
             auto_renamed = True
         else:
@@ -572,7 +572,7 @@ def _handle_replace(
     if file_object.id == old_fo_id:
         if normalized_filename != (kb_file.original_filename or ""):
             kb_file.original_filename = normalized_filename
-            kb_file.updated_at = datetime.utcnow()
+            kb_file.updated_at = utc_now()
             session.add(kb_file)
         from docpaws.infra.repos.index_repo import ensure_kb_index_job, get_latest_index_job_for_kb
 
@@ -601,14 +601,14 @@ def _handle_replace(
 
     kb_file.file_object_id = file_object.id
     kb_file.original_filename = normalized_filename
-    kb_file.updated_at = datetime.utcnow()
+    kb_file.updated_at = utc_now()
     session.add(kb_file)
 
     physical_drop = unlink_file_object_if_unused(session, old_fo_id)
 
     document.version += 1
     document.status = "draft"
-    document.updated_at = datetime.now()
+    document.updated_at = utc_now()
     session.add(document)
 
     job_key = idempotency_key or f"{document.id}:v{document.version}"
@@ -699,7 +699,7 @@ def update_document_title(session: Session, *, document_id: str, title: str) -> 
         )
 
     doc.title = base_title
-    doc.updated_at = datetime.utcnow()
+    doc.updated_at = utc_now()
     if doc.kb_file_id:
         kb_file = session.get(KbFile, doc.kb_file_id)
         if kb_file:
@@ -707,7 +707,7 @@ def update_document_title(session: Session, *, document_id: str, title: str) -> 
             if kb_file.original_filename and "." in kb_file.original_filename:
                 ext = os.path.splitext(kb_file.original_filename)[1] or ".pdf"
             kb_file.original_filename = f"{base_title}{ext}"
-            kb_file.updated_at = datetime.utcnow()
+            kb_file.updated_at = utc_now()
             session.add(kb_file)
     session.add(doc)
     session.commit()

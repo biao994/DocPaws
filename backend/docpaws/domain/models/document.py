@@ -4,6 +4,8 @@
 from datetime import datetime
 from uuid import uuid4
 
+from docpaws.domain.datetime_utils import utc_now
+
 from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
@@ -35,8 +37,8 @@ class Document(SQLModel, table=True):
     )
     indexed_at: datetime | None = Field(default=None)
     thumbnail_key: str | None = Field(default=None, index=True, description="S3 缩略图 object key")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
 
 class FileObject(SQLModel, table=True):
@@ -47,7 +49,7 @@ class FileObject(SQLModel, table=True):
     sha256: str = Field(index=True, unique=True)
     size_bytes: int = Field(description="文件大小(字节)")
     file_type: str = Field(description="文件类型")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class KbFile(SQLModel, table=True):
@@ -58,8 +60,8 @@ class KbFile(SQLModel, table=True):
     original_filename: str = Field(max_length=200)
     uploaded_by: str = Field(index=True)
     status: str = Field(default="active", description="active/deleted")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
     deleted_at: datetime | None = Field(default=None)
 
 
@@ -71,4 +73,4 @@ class Chunk(SQLModel, table=True):
     page_no: int | None = Field(default=None)
     start_offset: int | None = Field(default=None)
     end_offset: int | None = Field(default=None)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)

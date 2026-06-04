@@ -4,6 +4,8 @@
 from datetime import datetime
 from uuid import uuid4
 
+from docpaws.domain.datetime_utils import utc_now
+
 from sqlmodel import Field, SQLModel
 
 
@@ -25,4 +27,4 @@ class UsageRecord(SQLModel, table=True):
     cost: float = Field(default=0.0)
     model_name: str = Field(default="")
     error_code: str | None = Field(default=None)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)

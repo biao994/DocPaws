@@ -3,10 +3,9 @@
 """
 from __future__ import annotations
 
-from datetime import datetime
-
 from sqlmodel import Session
 
+from docpaws.domain.datetime_utils import utc_now
 from docpaws.errors import AppError
 from docpaws.domain.models.document import Document
 from docpaws.infra.repos.folder_repo import (
@@ -76,7 +75,7 @@ def refresh_kb_document_folder_paths(session: Session, kb_id: str) -> None:
         if not doc.folder_id:
             continue
         doc.folder_path = folder_materialized_path(session, doc.folder_id) or None
-        doc.updated_at = datetime.utcnow()
+        doc.updated_at = utc_now()
         session.add(doc)
 
 

@@ -209,7 +209,6 @@ def retrieve_scoped_docs_cached(
     question_norm = _normalize_question(question)
     cache_key = ""
     docs = None
-
     if cache_redis is not None:
         try:
             cache_key = _retrieval_cache_key(
@@ -225,7 +224,6 @@ def retrieve_scoped_docs_cached(
         except Exception as e:
             logger.info(f"retrieval cache get failed: {e}")
             docs = None
-
     if docs is None:
         docs = retrieve_docs_with_retry(
             vectorstore,
@@ -443,10 +441,13 @@ async def _stream_answer_events(
     model_name: str,
 ) -> AsyncGenerator[dict, None]:
     """
-    SSE 流式问答生成器（实现体，由 ChatService.stream_answer 转发）
+    SSE 流式问答生成器（实现体，由 _stream_answer_impl / ChatService 转发）。
+
+    主链路：校验 → 会话/范围 → 存用户消息 → meta → 检索预检 → Agent 流式生成 → 落库。
+    各阶段通过 yield 推送 SSE 事件；任意阶段失败可提前 return。
 
     Yields:
-        SSE payload dicts（type/content/finished/message_id/citations）
+        SSE payload dicts（type/content/finished/message_id/citations 等）
     """
     search_k = int(get_default_config().get("search_k", 5) or 5)
 
@@ -473,17 +474,18 @@ async def _stream_answer_events(
         validate_scope,
     )
 
-    # 3. 创建/获取会话（尽早返回 conversation_id，便于前端直达会话详情）
+    # 3. 创建/获取会话（meta 阶段会尽早返回 conversation_id，便于前端跳转）
     cid = conversation_id
     conv: Conversation | None = None
     if cid:
         conv = get_conversation_by_id(session, cid)
         if not conv:
-            cid = None
+            cid = None  # 会话不存在则当作新会话处理
         elif conv.user_id != user_id or conv.kb_id != kb_id:
             yield {"type": "error", "code": ErrorCode.FORBIDDEN, "content": "无权访问该会话"}
             return
 
+    # 已有会话沿用其 scope；无会话时 scope 由本次请求的 document_id/folder_id 决定
     scope_type, scope_id = resolve_effective_scope(
         conversation=conv,
         document_id=document_id,
@@ -496,6 +498,7 @@ async def _stream_answer_events(
         return
 
     if not cid:
+        # 新会话：scope 锁定为 kb / folder / file 之一，后续多轮追问不再变范围
         new_scope_type, new_scope_id = scope_from_request(
             document_id=document_id, folder_id=folder_id
         )
@@ -524,6 +527,7 @@ async def _stream_answer_events(
         "question_message_id": user_msg.id,
     }
 
+    # 6. 范围内是否有可检索文档（空文件夹等场景，不必加载向量库）
     doc_ids = document_ids_for_scope(
         session, kb_id=kb_id, scope_type=scope_type, scope_id=scope_id
     )
@@ -544,11 +548,12 @@ async def _stream_answer_events(
         }
         return
 
+    # FAISS metadata 过滤 + 检索缓存 scope 标识（预检与 Agent 工具共用）
     metadata_filter = build_faiss_filter(doc_ids)
     scope_token = scope_cache_token(scope_type, scope_id)
     artifact_id = getattr(artifact, "id", "") or str(getattr(artifact, "version", ""))
 
-    # 6. 构建向量库（工具内检索使用）
+    # 7. 加载向量库（预检检索与 Agent 工具 query_knowledge_base 共用同一实例）
     try:
         _, vectorstore = build_retriever(artifact.index_path)
     except FileNotFoundError:
@@ -567,6 +572,7 @@ async def _stream_answer_events(
         session, kb_id=kb_id, scope_type=scope_type, scope_id=scope_id
     )
 
+    # 8. deep 模式：Agent 启动前先流式输出「思考前奏」（fast 模式跳过）
     if chat_mode == "deep":
         scope_doc_count = count_documents_in_scope(
             session, kb_id=kb_id, scope_type=scope_type, scope_id=scope_id
@@ -591,7 +597,10 @@ async def _stream_answer_events(
         retrieval_filter_for_question,
     )
 
+    # 9. 检索预检：内容类问题先做一次向量检索，无命中则拒答、不启动 Agent。
+    #    「有几个文件/列出文档」等元问题跳过预检，避免挡住 count/list 工具。
     if not should_skip_retrieval_preflight(question):
+        # 若问题点名某文档标题，在 scope 内进一步收窄到单文件
         pre_meta, pre_named_doc = retrieval_filter_for_question(
             session,
             kb_id=kb_id,
@@ -611,6 +620,7 @@ async def _stream_answer_events(
             scope_token=retrieval_cache_scope_token(scope_token, pre_named_doc),
         )
         if not preflight_docs:
+            # 预检失败仍完整落库，前端收到 finished answer_chunk 即结束流
             reject_msg = INSUFFICIENT_RETRIEVAL_MSG
             answer = Answer(
                 conversation_id=cid,
@@ -645,6 +655,7 @@ async def _stream_answer_events(
             }
             return
 
+    # 10. Agent 流式生成：按需调用检索/统计/列表等工具，逐段推送 answer_chunk
     from docpaws.usecases.chat_agent_tools import AgentToolContext
     from docpaws.usecases.chat_agent_runner import run_agent_stream
 
@@ -665,7 +676,7 @@ async def _stream_answer_events(
 
     llm = create_chat_llm(model_name=model_name, chat_mode=chat_mode)
 
-    full: list[str] = []
+    full: list[str] = []  # 累积流式片段，流结束后一次性落库
     try:
         async for event in run_agent_stream(
             llm=llm,
@@ -679,6 +690,7 @@ async def _stream_answer_events(
             if not content:
                 continue
             if kind == "tool_running":
+                # 工具执行状态仅 deep 模式对外展示；fast 模式静默调工具
                 if chat_mode == "deep":
                     yield {
                         "type": "tool_running",
@@ -710,6 +722,7 @@ async def _stream_answer_events(
     answer_text = "".join(full)
     citations = tool_ctx.last_citations
 
+    # 11. 检索审计：记录 Agent 实际命中的 chunk，便于追溯与评测
     if tool_ctx.last_hit_chunks:
         retrieval_run = RetrievalRun(
             kb_id=kb_id,
@@ -754,7 +767,7 @@ async def _stream_answer_events(
     session.commit()
     session.refresh(assistant_msg)
 
-    # 13. 完成事件
+    # 13. 完成事件：content 为空，finished=True；citations / message_id 在此一并返回
     yield {
         "type": "answer_chunk",
         "content": "",

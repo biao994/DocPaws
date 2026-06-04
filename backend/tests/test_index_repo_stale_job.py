@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 from sqlmodel import Session, select
 
+from docpaws.domain.datetime_utils import utc_now
 from docpaws.domain.models.index import IndexJob
 from docpaws.infra.db.session import engine, create_db_and_tables
 from docpaws.infra.repos.index_repo import (
@@ -21,7 +22,7 @@ def test_is_stale_queued_when_progress_zero_and_old():
         status="queued",
         progress=0,
         idempotency_key="k1",
-        updated_at=datetime.utcnow() - timedelta(seconds=STALE_QUEUED_SECONDS + 1),
+        updated_at=utc_now() - timedelta(seconds=STALE_QUEUED_SECONDS + 1),
     )
     assert is_stale_index_job(job) is True
 
@@ -35,7 +36,7 @@ def test_non_stale_queued_returns_reenqueue():
             status="queued",
             progress=0,
             idempotency_key=f"kb:{kb_id}:old",
-            updated_at=datetime.utcnow(),
+            updated_at=utc_now(),
         )
         session.add(job)
         session.commit()
@@ -55,7 +56,7 @@ def test_stale_queued_marked_failed_and_new_job_enqueued():
             status="queued",
             progress=0,
             idempotency_key=f"kb:{kb_id}:stale",
-            updated_at=datetime.utcnow() - timedelta(seconds=STALE_QUEUED_SECONDS + 60),
+            updated_at=utc_now() - timedelta(seconds=STALE_QUEUED_SECONDS + 60),
         )
         session.add(stale)
         session.commit()

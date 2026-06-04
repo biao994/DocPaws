@@ -4,6 +4,8 @@
 from datetime import datetime
 from uuid import uuid4
 
+from docpaws.domain.datetime_utils import utc_now
+
 from sqlmodel import Field, SQLModel
 
 
@@ -16,5 +18,5 @@ class User(SQLModel, table=True):
     username: str = Field(default="", unique=True)
     email: str = Field(index=True, unique=True)
     password_hash: str = Field(default="")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
