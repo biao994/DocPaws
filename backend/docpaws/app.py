@@ -14,9 +14,7 @@ from starlette.middleware.sessions import SessionMiddleware
 # from fastapi.staticfiles import StaticFiles   # 静态挂载时再启用（需 aiofiles）
 
 from docpaws.settings import settings
-from docpaws.infra.db.session import create_db_and_tables, get_session, engine
-from docpaws.domain.models.user import User
-from sqlmodel import select
+from docpaws.infra.db.session import create_db_and_tables
 from fastapi.responses import JSONResponse
 
 from docpaws.api.response import ErrorCode, error, get_status_code
@@ -62,15 +60,7 @@ def create_app() -> FastAPI:
         os.makedirs(settings.INDEX_DIR, exist_ok=True)
         os.makedirs(settings.DATA_DIR, exist_ok=True)
         create_db_and_tables()
-        _ensure_default_user()
         logger.info("DocPaws Enterprise started")
-
-    def _ensure_default_user():
-        with next(get_session()) as session:
-            user = session.exec(select(User).where(User.id == "default_user")).first()
-            if not user:
-                session.add(User(id="default_user", email="default@example.com", username="Default User"))
-                session.commit()
 
     # ── 健康检查 & 根路由 ───────────────────────────────
     @app.get("/healthz")

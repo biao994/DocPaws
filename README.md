@@ -162,5 +162,5 @@ celery -A docpaws.infra.tasks.celery_app:celery_app worker --loglevel=info --poo
 
 本项目采用 [MIT License](LICENSE)。
 
-生产部署前请更换 `SECRET_KEY`、关闭默认开发用户逻辑，并审查 FAISS 索引目录权限。
+生产部署前请更换 `SECRET_KEY`，并审查 FAISS 索引目录权限。
 
