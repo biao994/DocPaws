@@ -1,11 +1,11 @@
 <template>
   <div class="mascot" :style="wrapStyle" aria-hidden="true">
-    <img class="mascot-img" :src="emptySvg" alt="" />
+    <img class="mascot-img" :src="mascotLogo" alt="" />
   </div>
 </template>
 
 <script setup lang="ts">
-import emptySvg from '../assets/消息空荡荡的.svg'
+import mascotLogo from '../assets/mascot-logo.svg'
 
 const props = withDefaults(
   defineProps<{

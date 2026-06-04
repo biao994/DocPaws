@@ -158,9 +158,28 @@ celery -A docpaws.infra.tasks.celery_app:celery_app worker --loglevel=info --poo
 | `CELERY_BROKER_URL` / `CACHE_REDIS_URL` | 异步索引与检索缓存（可选） |
 | `S3_ENDPOINT_INTERNAL` | MinIO 对象存储（上传 PDF 需要） |
 
+## FAISS 索引与安全说明
+
+DocPaws 使用 **本地 FAISS** 存储向量索引（`INDEX_DIR`，默认 `backend/data/indexes`）。索引由本服务在 KB 级增量任务中**写入**，对话时**只读**加载。
+
+### 反序列化（`allow_dangerous_deserialization`）
+
+LangChain 加载已保存索引时需设置 `allow_dangerous_deserialization=True`（见 `infra/vectorstore/faiss_manager.py`）。这是因为 FAISS 的 `load_local` 会通过 pickle 还原索引文件；**若索引目录被他人篡改或写入不可信文件，存在反序列化风险**。
+
+**生产建议：**
+
+- `INDEX_DIR` 仅本服务进程可写，其他用户只读或不可访问
+- 不要将索引目录挂载到多租户共享、可被用户上传的路径
+- 备份/迁移索引时使用与 DB 一致的信任边界
+- Windows 下路径建议纯英文（FAISS 对中文路径兼容性较差）
+
+### 检索拒答
+
+可通过 `RETRIEVAL_MAX_DISTANCE` 设置 FAISS L2 距离上限（越小越相似；`0` 表示仅检索为空时拒答）。详见 [`backend/README.md`](backend/README.md) 与 [`eval/README.md`](eval/README.md)。
+
 ## 许可证
 
 本项目采用 [MIT License](LICENSE)。
 
-生产部署前请更换 `SECRET_KEY`，并审查 FAISS 索引目录权限。
+生产部署前请更换 `SECRET_KEY`，并确保 FAISS 索引目录权限符合上文说明。
 

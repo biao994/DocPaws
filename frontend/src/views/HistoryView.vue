@@ -137,7 +137,7 @@ import { isAbortError } from '../utils/errors'
 import { applyKbMentionToInput } from '../utils/kbMention'
 import { setOpenFileChat } from '../utils/openFileChat'
 
-type ViewName = 'home' | 'kb' | 'history' | 'chat'
+type ViewName = 'home' | 'kb' | 'history'
 interface KbOption {
   id: string
   name: string

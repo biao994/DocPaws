@@ -11,10 +11,9 @@ import { authReady, bootAuth, currentUser } from './auth/session'
 import HomeView from './views/HomeView.vue'
 import PersonalKbView from './views/PersonalKbView.vue'
 import HistoryView from './views/HistoryView.vue'
-import ChatDetailView from './views/ChatDetailView.vue'
 import LoginView from './views/LoginView.vue'
 
-type ViewName = 'home' | 'kb' | 'history' | 'chat'
+type ViewName = 'home' | 'kb' | 'history'
 
 const activeView = ref<ViewName>('home')
 
@@ -24,8 +23,6 @@ const currentViewComp = computed(() => {
       return PersonalKbView
     case 'history':
       return HistoryView
-    case 'chat':
-      return ChatDetailView
     case 'home':
     default:
       return HomeView

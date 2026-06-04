@@ -134,7 +134,7 @@ import { useChatStream } from '../composables/useChatStream'
 import { applyKbMentionToInput } from '../utils/kbMention'
 import { setOpenFileChat } from '../utils/openFileChat'
 // 定义视图类型
-type ViewName = 'home' | 'kb' | 'history' | 'chat'
+type ViewName = 'home' | 'kb' | 'history'
 
 interface KbOption {
   id: string
