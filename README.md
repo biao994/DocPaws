@@ -11,6 +11,7 @@ DocPaws/
   frontend/         # Vue 3 单页应用
   eval/             # Golden 20 RAG 回归评估
   docs/             # 架构与开发约定
+  docker-compose.yml  # 本地 Redis + MinIO
 ```
 
 架构文档见 [`docs/architecture/layering.md`](docs/architecture/layering.md)（分层总览）、[`usecases-style.md`](docs/architecture/usecases-style.md)（用例层约定）。  
@@ -22,10 +23,37 @@ DocPaws/
 - [Miniconda](https://docs.conda.io/en/latest/miniconda.html) 或 Anaconda（推荐用 **Conda** 管理后端 Python，避免和系统 Python 混用）
 - Python **3.11**（由 Conda 环境提供即可）
 - Node.js 20+（前端，与 Conda 无关）
-- Redis（可选：检索缓存、Celery 索引队列）
+- [Docker](https://docs.docker.com/get-docker/)（可选：`docker compose up -d` 起 Redis + MinIO）
+- Redis（可选：检索缓存、Celery 索引队列；可用 compose 或本机已有实例）
 - LLM + Embedding 的 API Key（DeepSeek / OpenAI 兼容 / SiliconFlow 等）
 
 ## 快速启动
+
+### 0. 基础设施（Redis + MinIO，推荐）
+
+在项目根目录 `DocPaws/`：
+
+```bash
+docker compose up -d
+```
+
+| 服务 | 地址 | 说明 |
+|------|------|------|
+| **MinIO** API | `http://127.0.0.1:9000` | 上传 PDF 对象存储 |
+| **MinIO** 控制台 | `http://127.0.0.1:9001` | 账号 `minioadmin` / `minioadmin123` |
+| **Redis** | `127.0.0.1:6379` | DB `/0` 检索缓存，`/1` Celery broker，`/2` result |
+
+`minio-init` 会自动创建 bucket `kb-files` 后退出（`Exited (0)` 属正常）。
+
+若本机 **6379 已被占用**，只起 MinIO 即可：
+
+```bash
+docker compose up -d minio minio-init
+```
+
+`.env` 中 Redis / MinIO 变量见 [`.env.example`](backend/.env.example)（复制为 `backend/.env` 后按需改 Key）。
+
+停止：`docker compose down`（数据在 Docker volume 中保留）。
 
 ### 1. 后端（Conda + pip）
 
@@ -127,7 +155,8 @@ celery -A docpaws.infra.tasks.celery_app:celery_app worker --loglevel=info --poo
 | `DEEPSEEK_API_KEY` / `EMBEDDING_API_KEY` | LLM 与向量模型 |
 | `INDEX_DIR` | FAISS 索引目录（Windows 建议纯英文路径） |
 | `RETRIEVAL_MAX_DISTANCE` | L2 距离上限，`0` 表示仅无检索结果时拒答 |
-| `CELERY_BROKER_URL` | 异步索引（可选） |
+| `CELERY_BROKER_URL` / `CACHE_REDIS_URL` | 异步索引与检索缓存（可选） |
+| `S3_ENDPOINT_INTERNAL` | MinIO 对象存储（上传 PDF 需要） |
 
 ## 许可证
 

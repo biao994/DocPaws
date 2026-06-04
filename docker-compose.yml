@@ -1,0 +1,67 @@
+# DocPaws 本地基础设施：Redis（缓存 + Celery）+ MinIO（对象存储）
+#
+# 启动：docker compose up -d
+# 停止：docker compose down
+# 查看：docker compose ps
+#
+# 本机 backend/.env 需对齐（见 .env.example 中 Redis / MinIO 段）：
+#   CELERY_BROKER_URL=redis://127.0.0.1:6379/1
+#   CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/2
+#   CACHE_REDIS_URL=redis://127.0.0.1:6379/0
+#   S3_ENDPOINT_INTERNAL=http://127.0.0.1:9000
+#
+# API / Celery worker 仍在本机运行（conda + uvicorn / celery worker）。
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: docpaws-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: docpaws-minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: docpaws-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin123 &&
+      mc mb local/kb-files --ignore-existing &&
+      exit 0
+      "
+    restart: "no"
+
+volumes:
+  redis_data:
+  minio_data:
