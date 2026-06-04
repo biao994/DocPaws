@@ -1,6 +1,5 @@
 import { computed, onScopeDispose, ref } from 'vue'
-import { readChatSse, type ChatStreamPayload } from '../api/chatStream'
-import { applyChatStreamToAssistant } from '../api/chatStreamHandlers'
+import { streamChatResponse } from './useChatStream'
 import { useChatMode } from './useChatMode'
 import { postChat } from '../api/documents'
 import {
@@ -10,7 +9,6 @@ import {
   renameConversation,
   type ConversationSummary as ApiConversationSummary,
 } from '../api/conversations'
-import { CHAT_STREAM_URL } from '../api/chat'
 import {
   buildChatScopeBody,
   chatScopeCacheKey,
@@ -18,7 +16,6 @@ import {
   scopeFromConversation,
   type ChatScopePayload,
 } from '../api/chatScope'
-import { applyFetchUnauthorized } from '../auth/session'
 import { isAbortError } from '../utils/errors'
 
 export type KbModalChatTarget = { id: string }
@@ -313,52 +310,43 @@ export function useKbModalChat(opts: {
       modalStreamCtrl = new AbortController()
       let streamOk = false
       for (let attempt = 0; attempt < 2; attempt++) {
-        const res = await fetch(CHAT_STREAM_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          signal: modalStreamCtrl.signal,
-          body: JSON.stringify({
-            kb_id: kb.id,
-            question: rawQuestion,
-            conversation_id: modalConversationId.value || undefined,
-            ...scopeBody,
-            chat_mode: chatMode.value,
-          }),
-        })
-        if (res.status === 401) {
-          applyFetchUnauthorized()
-          const msg = modalMessages.value.find((m) => m.id === aiId)
-          if (msg) msg.content = '登录已失效，请重新登录'
-          modalIsStreaming.value = false
-          return
-        }
-        if (!res.ok || !res.body) {
-          if (attempt === 1) break
-          await new Promise((resolve) => setTimeout(resolve, 500))
-          continue
-        }
-        await readChatSse(res, {
-          onPayload: async (data: ChatStreamPayload) => {
-            if (data.event === 'meta' && data.conversation_id) {
-              bindConversationIdFromStream(data.conversation_id, scope)
-              return
-            }
-            if (data.content) {
-              const msg = modalMessages.value.find((m) => m.id === aiId)
-              if (msg) applyChatStreamToAssistant(data, msg)
-            }
-            if (data.finished) {
+        try {
+          const streamResult = await streamChatResponse({
+            body: {
+              kb_id: kb.id,
+              question: rawQuestion,
+              conversation_id: modalConversationId.value || undefined,
+              ...scopeBody,
+              chat_mode: chatMode.value,
+            },
+            signal: modalStreamCtrl.signal,
+            assistantMsgId: aiId,
+            inlineError: false,
+            getAssistantMsg: () => modalMessages.value.find((m) => m.id === aiId),
+            onMeta: (data) => {
+              if (data.conversation_id) {
+                bindConversationIdFromStream(data.conversation_id, scope)
+              }
+            },
+            onFinished: (data) => {
               streamOk = true
               if (data.conversation_id) {
                 bindConversationIdFromStream(data.conversation_id, scope)
               }
-              const msg = modalMessages.value.find((m) => m.id === aiId)
-              if (msg) msg.citations = (data.citations as KbModalCitation[]) || []
-            }
-          },
-        })
-        if (streamOk) break
+            },
+          })
+          if (streamResult === 'unauthorized') {
+            const msg = modalMessages.value.find((m) => m.id === aiId)
+            if (msg) msg.content = '登录已失效，请重新登录'
+            modalIsStreaming.value = false
+            return
+          }
+          if (streamOk) break
+        } catch {
+          /* retry on transient network errors */
+        }
+        if (attempt === 1) break
+        await new Promise((resolve) => setTimeout(resolve, 500))
       }
 
       if (!streamOk) {

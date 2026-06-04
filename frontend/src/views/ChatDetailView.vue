@@ -1,10 +1,8 @@
 <template>
   <div class="page-root">
     <div class="chat-topbar">
-      <button class="back-btn" @click="goBack" title="返回">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="15 18 9 12 15 6"></polyline>
-        </svg>
+      <button class="back-btn" type="button" @click="goBack" title="返回">
+        <IconChevronLeft />
       </button>
       <div class="chat-title">
         <div class="chat-kb">@{{ kbName || '知识库' }}</div>
@@ -14,26 +12,11 @@
     </div>
 
     <div ref="chatContent" class="chat-content">
-      <div
-        v-for="msg in messages"
-        :key="msg.id"
-        class="message"
-        :class="[msg.role === 'assistant' ? 'ai' : 'user', msg.kind === 'hint' ? 'hint' : '']"
-      >
-        <div class="message-body">
-          <ThinkingSection
-            v-if="msg.role === 'assistant'"
-            :text="msg.thinking"
-          />
-          <ChatThinkingPlaceholder
-            v-if="isAssistantAwaitingContent(msg, streamingAssistantId)"
-          />
-          <div v-else class="message-text">{{ msg.content }}</div>
-          <div class="message-meta">
-            <span>{{ msg.role === 'assistant' ? '系统' : '用户' }} · {{ formatTime(msg.created_at) }}</span>
-          </div>
-        </div>
-      </div>
+      <ChatMessageList
+        variant="page"
+        :messages="displayMessages"
+        :pending-assistant-id="streamingAssistantId"
+      />
     </div>
 
     <div class="chat-footer">
@@ -53,17 +36,15 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+
+import ChatMessageList, { type ChatModalMessage } from '../components/ChatMessageList.vue'
+import type { ChatCitation } from '../api/chatTypes'
 import ComposerBox from '../components/ComposerBox.vue'
-import ChatThinkingPlaceholder from '../components/ChatThinkingPlaceholder.vue'
-import ThinkingSection from '../components/ThinkingSection.vue'
-import { CHAT_STREAM_URL } from '../api/chat'
-import { readChatSse, type ChatStreamPayload } from '../api/chatStream'
-import { applyChatStreamToAssistant } from '../api/chatStreamHandlers'
+import IconChevronLeft from '../components/icons/IconChevronLeft.vue'
 import { useChatMode } from '../composables/useChatMode'
-import { applyFetchUnauthorized } from '../auth/session'
+import { useChatStream } from '../composables/useChatStream'
 import { isAbortError } from '../utils/errors'
-import { isAssistantAwaitingContent } from '../utils/chatPending'
 
 type ViewName = 'home' | 'kb' | 'history' | 'chat'
 type ChatMsg = {
@@ -71,11 +52,13 @@ type ChatMsg = {
   role: 'user' | 'assistant'
   content: string
   thinking?: string
+  citations?: ChatCitation[]
   created_at: string
   kind?: 'hint'
 }
 
 const { chatMode } = useChatMode()
+const { isStreaming, streamingAssistantId, sendChatStream, abort: abortChatStream } = useChatStream()
 
 const emit = defineEmits<{
   (e: 'navigate', view: ViewName): void
@@ -87,14 +70,16 @@ const kbName = ref<string>('')
 const conversationId = ref<string | null>(null)
 const messages = ref<ChatMsg[]>([])
 const questionInput = ref('')
-const isStreaming = ref(false)
-const streamingAssistantId = ref<string | null>(null)
-let streamCtrl: AbortController | null = null
 
-const formatTime = (dateStr: string) => {
-  if (!dateStr) return ''
-  return new Date(dateStr).toLocaleString('zh-CN')
-}
+const displayMessages = computed((): ChatModalMessage[] =>
+  messages.value.map((m) => ({
+    id: m.id,
+    role: m.role,
+    content: m.content,
+    thinking: m.thinking,
+    citations: m.citations,
+  })),
+)
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -128,89 +113,56 @@ const sendQuestion = async () => {
     { id: aiId, role: 'assistant', content: '', created_at: new Date().toISOString() },
   )
   questionInput.value = ''
-  isStreaming.value = true
-  streamingAssistantId.value = aiId
   await scrollToBottom()
 
   try {
-    if (streamCtrl) {
-      streamCtrl.abort()
-      streamCtrl = null
-    }
-    streamCtrl = new AbortController()
-    const res = await fetch(CHAT_STREAM_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      signal: streamCtrl.signal,
-      body: JSON.stringify({
+    const result = await sendChatStream({
+      body: {
         kb_id: kbId.value,
         question: q,
         conversation_id: conversationId.value || undefined,
         chat_mode: chatMode.value,
-      }),
-    })
-
-    if (res.status === 401) {
-      applyFetchUnauthorized()
-      messages.value = messages.value.filter((m) => m.id !== userId && m.id !== aiId)
-      isStreaming.value = false
-      return
-    }
-
-    if (!res.ok || !res.body) {
-      let hint = '请求失败'
-      try {
-        const data = await res.json()
-        hint = data?.user_hint || data?.message || hint
-      } catch {}
-      // 不落库：直接 UI 提示
-      messages.value = messages.value.filter((m) => m.id !== aiId)
-      await pushHint(hint === '知识库为空' ? '知识库为空,请先上传文档' : hint)
-      return
-    }
-    let done = false
-    await readChatSse(res, {
-      onPayload: async (data: ChatStreamPayload) => {
-        if (done) return
-
-        if (data.event === 'meta' && data.conversation_id) {
-          if (!conversationId.value) conversationId.value = data.conversation_id
-          return
+      },
+      assistantMsgId: aiId,
+      getAssistantMsg: () => messages.value.find((m) => m.id === aiId),
+      inlineError: false,
+      onUnauthorized: () => {
+        messages.value = messages.value.filter((m) => m.id !== userId && m.id !== aiId)
+      },
+      onMeta: (data) => {
+        if (data.conversation_id && !conversationId.value) {
+          conversationId.value = data.conversation_id
         }
-
-        if (data.event === 'error' || data.code) {
-          messages.value = messages.value.filter((m) => m.id !== aiId)
-          await pushHint(String(data.content || '处理失败'))
-          done = true
-          return
-        }
-
-        if (data.content) {
-          const aiMsg = messages.value.find((m) => m.id === aiId)
-          if (aiMsg) {
-            applyChatStreamToAssistant(data, aiMsg)
-            await scrollToBottom()
-          }
-        }
-
-        if (data.finished) {
-          if (data.conversation_id && !conversationId.value) conversationId.value = data.conversation_id
-          done = true
+      },
+      onError: (message) => {
+        messages.value = messages.value.filter((m) => m.id !== aiId)
+        void pushHint(message)
+        return 'handled'
+      },
+      onChunk: () => void scrollToBottom(),
+      onFinished: (data) => {
+        if (data.conversation_id && !conversationId.value) {
+          conversationId.value = data.conversation_id
         }
       },
     })
-  } catch (e) {
-    if (isAbortError(e)) {
+
+    if (result === 'failed' && !messages.value.some((m) => m.id === aiId)) {
+      // HTTP 层失败且未走 onError
       return
     }
+    if (result === 'failed') {
+      const aiMsg = messages.value.find((m) => m.id === aiId)
+      if (aiMsg && !aiMsg.content) {
+        messages.value = messages.value.filter((m) => m.id !== aiId)
+        await pushHint('请求失败，请稍后重试')
+      }
+    }
+  } catch (e) {
+    if (isAbortError(e)) return
     console.error('stream failed:', e)
     messages.value = messages.value.filter((m) => m.id !== aiId)
     await pushHint('请求失败，请稍后重试')
-  } finally {
-    isStreaming.value = false
-    streamingAssistantId.value = null
-    streamCtrl = null
   }
 }
 
@@ -239,10 +191,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  if (streamCtrl) {
-    streamCtrl.abort()
-    streamCtrl = null
-  }
+  abortChatStream()
 })
 </script>
 
@@ -311,57 +260,6 @@ onUnmounted(() => {
   background: #fff;
 }
 
-.message {
-  display: flex;
-  margin: 10px 0;
-}
-
-.message.user {
-  justify-content: flex-end;
-}
-
-.message.ai {
-  justify-content: flex-start;
-}
-
-.message-body {
-  max-width: min(720px, 92%);
-  border-radius: 12px;
-  padding: 10px 12px;
-  border: 1px solid #f0f0f0;
-  background: #fafafa;
-}
-
-.message.user .message-body {
-  background: var(--dp-primary);
-  color: #fff;
-  border-color: var(--dp-primary);
-}
-
-.message.hint .message-body {
-  background: #fff7e6;
-  border-color: #ffd591;
-  color: #ad4e00;
-}
-
-.message-text {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  font-size: 14px;
-  line-height: 22px;
-}
-
-.message-meta {
-  margin-top: 6px;
-  font-size: 12px;
-  color: rgba(0, 0, 0, 0.45);
-}
-
-.message.user .message-meta {
-  color: rgba(255, 255, 255, 0.85);
-}
-
 .chat-footer {
   padding: 14px 0 18px;
   background: #fff;
@@ -374,4 +272,3 @@ onUnmounted(() => {
   width: min(820px, 94%);
 }
 </style>
-

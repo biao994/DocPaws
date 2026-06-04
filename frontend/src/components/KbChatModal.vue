@@ -112,7 +112,8 @@
 <script setup lang="ts">
 import ComposerBox from './ComposerBox.vue'
 import ChatMessageList from './ChatMessageList.vue'
-import type { ChatCitation, ChatModalMessage } from './ChatMessageList.vue'
+import type { ChatModalMessage } from './ChatMessageList.vue'
+import type { ChatCitation } from '../api/chatTypes'
 
 export type { ChatCitation, ChatModalMessage }
 

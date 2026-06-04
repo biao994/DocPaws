@@ -1,55 +1,16 @@
 <template>
-  <div class="page-root">
-    <!-- 顶部导航栏 -->
-    <div class="top-nav">
-      <div class="nav-left">
-        <button class="btn-collapse" @click="toggleSidebar" title="收起侧边栏">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="15 18 9 12 15 6"></polyline>
-          </svg>
-        </button>
-      </div>
-      <div class="nav-actions" style="position: relative">
-        <div ref="userInfo" class="user-info" @click.stop="toggleSettings">
-          <div class="user-avatar">{{ avatarLetter }}</div>
-          <span class="user-name">{{ userDisplayName }}</span>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="6 9 12 15 18 9"></polyline>
-          </svg>
-        </div>
-        <div ref="settingsMenu" class="settings-menu" :class="{ show: showSettings }">
-          <template v-if="false">
-            <div class="settings-item">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
-              </svg>
-              提交反馈
-            </div>
-            <div class="settings-divider"></div>
-          </template>
-          <div class="settings-item logout" @click.stop="handleLogout">退出登录</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 主布局 -->
+  <AppShell @toggle-sidebar="toggleSidebar">
     <div class="main-container">
       <!-- 左侧边栏 -->
       <div class="sidebar-left" :class="{ collapsed: sidebarCollapsed }">
         <button class="new-chat-btn" @click="newChat" title="新建会话">
           <span class="new-chat-icon" aria-hidden="true">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path>
-              <line x1="12" y1="8.5" x2="12" y2="13.5"></line>
-              <line x1="9.5" y1="11" x2="14.5" y2="11"></line>
-            </svg>
+            <IconNewChat />
           </span>
           <span class="new-chat-text">新建会话</span>
         </button>
         <button class="nav-item" @click="navigate('kb')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-          </svg>
+          <IconFolder />
           <span>知识库</span>
         </button>
 
@@ -57,10 +18,7 @@
           <div class="sidebar-section-header">
             <span class="sidebar-section-title">对话历史</span>
             <button class="btn-icon" title="搜索" @click="toggleHistorySearch">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
+              <IconSearch />
             </button>
           </div>
           <div v-if="showHistorySearch" class="search-box">
@@ -81,13 +39,7 @@
             >
               <div class="history-question">{{ item.title || '新对话' }}</div>
               <button class="history-delete-btn" title="删除" @click.stop="handleDeleteConversation(item)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="3 6 5 6 21 6"></polyline>
-                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
-                  <path d="M10 11v6"></path>
-                  <path d="M14 11v6"></path>
-                  <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
-                </svg>
+                <IconTrash />
               </button>
             </div>
             <div v-if="filteredConversations.length === 0" class="history-empty">暂无历史会话</div>
@@ -102,26 +54,11 @@
             <div class="chat-title">{{ scopeDisplayLabel(activeScope) }} · {{ currentConversation.title }}</div>
           </div>
           <div ref="chatContent" class="chat-content">
-            <div
-              v-for="msg in messages"
-              :key="msg.id"
-              class="message"
-              :class="msg.role === 'assistant' ? 'ai' : 'user'"
-            >
-              <div class="message-body">
-                <ThinkingSection
-                  v-if="msg.role === 'assistant'"
-                  :text="msg.thinking"
-                />
-                <ChatThinkingPlaceholder
-                  v-if="isAssistantAwaitingContent(msg, streamingAssistantId)"
-                />
-                <div v-else class="message-text">{{ msg.content }}</div>
-                <div class="message-meta">
-                  <span>{{ msg.role === 'assistant' ? '系统' : '用户' }} · {{ formatTime(msg.created_at) }}</span>
-                </div>
-              </div>
-            </div>
+            <ChatMessageList
+              variant="page"
+              :messages="displayMessages"
+              :pending-assistant-id="streamingAssistantId"
+            />
           </div>
           <div class="chat-input">
             <div class="composer-wrap">
@@ -168,17 +105,21 @@
         </div>
       </div>
     </div>
-  </div>
+  </AppShell>
 </template>
 
 <script setup lang="ts">
 
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import AppShell from '../components/AppShell.vue'
+import ChatMessageList, { type ChatModalMessage } from '../components/ChatMessageList.vue'
+import type { ChatCitation } from '../api/chatTypes'
 import ComposerBox from '../components/ComposerBox.vue'
-import ChatThinkingPlaceholder from '../components/ChatThinkingPlaceholder.vue'
-import ThinkingSection from '../components/ThinkingSection.vue'
+import IconFolder from '../components/icons/IconFolder.vue'
+import IconNewChat from '../components/icons/IconNewChat.vue'
+import IconSearch from '../components/icons/IconSearch.vue'
+import IconTrash from '../components/icons/IconTrash.vue'
 import MascotLogo from '../components/MascotLogo.vue'
-import { logout as authLogout } from '../api/auth'
 import { listKnowledgeBases } from '../api/kb'
 import { deleteConversation, getConversation, listConversationsPaged } from '../api/conversations'
 import {
@@ -188,15 +129,9 @@ import {
   scopeInputPlaceholder,
   type ChatScopePayload,
 } from '../api/chatScope'
-import { CHAT_STREAM_URL } from '../api/chat'
-import { readChatSse, type ChatStreamPayload } from '../api/chatStream'
-import { applyChatStreamToAssistant } from '../api/chatStreamHandlers'
 import { useChatMode } from '../composables/useChatMode'
-import { clearSession, currentUser } from '../auth/session'
-import { applyFetchUnauthorized } from '../auth/session'
-import { isAbortError } from '../utils/errors'
+import { useChatStream } from '../composables/useChatStream'
 import { applyKbMentionToInput } from '../utils/kbMention'
-import { isAssistantAwaitingContent } from '../utils/chatPending'
 import { setOpenFileChat } from '../utils/openFileChat'
 // 定义视图类型
 type ViewName = 'home' | 'kb' | 'history' | 'chat'
@@ -212,7 +147,6 @@ const emit = defineEmits<{
 }>()
 
 const sidebarCollapsed = ref(false)
-const showSettings = ref(false)
 const inputValue = ref('')
 const errorText = ref('')
 
@@ -230,20 +164,29 @@ const historySearchText = ref('')
 const historySearchInput = ref<HTMLInputElement | null>(null)
 type Message = {
   id: string
-  role: string
+  role: 'user' | 'assistant'
   content: string
   thinking?: string
+  citations?: ChatCitation[]
   created_at: string
 }
 
 const { chatMode } = useChatMode()
+const { isStreaming, streamingAssistantId, sendChatStream, abort: abortChatStream } = useChatStream()
+const draftConversationId = ref<string | null>(null)
 const currentConversation = ref<Conversation | null>(null)
 const messages = ref<Message[]>([])
 const chatContent = ref<HTMLElement | null>(null)
-const isStreaming = ref(false)
-const streamingAssistantId = ref<string | null>(null)
-let streamCtrl: AbortController | null = null
-const draftConversationId = ref<string | null>(null)
+
+const displayMessages = computed((): ChatModalMessage[] =>
+  messages.value.map((m) => ({
+    id: m.id,
+    role: m.role,
+    content: m.content,
+    thinking: m.thinking,
+    citations: m.citations,
+  })),
+)
 /** 当前会话的问答范围（续聊时与创建会话时一致） */
 const activeScope = ref<ChatScopePayload>({ scope_type: 'kb' })
 
@@ -257,8 +200,6 @@ const chatKbId = computed(
 //知识库相关状态
 const kbOptions = ref<KbOption[]>([])
 const selectedKb = ref<KbOption | null>(null)
-const settingsMenu = ref<HTMLElement | null>(null)
-const userInfo = ref<HTMLElement | null>(null)
 
 // 导航
 const navigate = (view: ViewName) => {
@@ -278,11 +219,6 @@ const toggleHistorySearch = () => {
   } else {
     historySearchText.value = ''
   }
-}
-
-const formatTime = (dateStr: string) => {
-  if (!dateStr) return ''
-  return new Date(dateStr).toLocaleString('zh-CN')
 }
 
 const scrollToBottom = () => {
@@ -396,28 +332,6 @@ const toggleSidebar = () => {
   sidebarCollapsed.value = !sidebarCollapsed.value
 }
 
-const toggleSettings = () => {
-  showSettings.value = !showSettings.value
-}
-
-const userDisplayName = computed(
-  () => currentUser.value?.username || currentUser.value?.email || '用户',
-)
-const avatarLetter = computed(() => {
-  const n = userDisplayName.value.trim()
-  return n ? n.charAt(0).toUpperCase() : 'U'
-})
-
-const handleLogout = async () => {
-  showSettings.value = false
-  try {
-    await authLogout()
-  } catch {
-    /* noop */
-  }
-  clearSession()
-}
-
 // 选择知识库
 const selectKb = (kb: KbOption) => {
   selectedKb.value = kb
@@ -472,104 +386,44 @@ const sendFromHome = async () => {
     { id: aiTempId, role: 'assistant', content: '', created_at: new Date().toISOString() },
   )
   inputValue.value = ''
-  isStreaming.value = true
-  streamingAssistantId.value = aiTempId
   queueMicrotask(scrollToBottom)
 
-  try {
-    if (streamCtrl) {
-      streamCtrl.abort()
-      streamCtrl = null
-    }
-    streamCtrl = new AbortController()
-    const res = await fetch(CHAT_STREAM_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      signal: streamCtrl.signal,
-      body: JSON.stringify({
-        kb_id: kbId,
-        question: q,
-        conversation_id: conv.id.startsWith('local-') ? undefined : conv.id,
-        ...buildChatScopeBody(activeScope.value),
-        chat_mode: chatMode.value,
-      }),
-    })
-
-    if (res.status === 401) {
-      applyFetchUnauthorized()
+  const result = await sendChatStream({
+    body: {
+      kb_id: kbId,
+      question: q,
+      conversation_id: conv.id.startsWith('local-') ? undefined : conv.id,
+      ...buildChatScopeBody(activeScope.value),
+      chat_mode: chatMode.value,
+    },
+    assistantMsgId: aiTempId,
+    getAssistantMsg: () => messages.value.find((m) => m.id === aiTempId),
+    onUnauthorized: () => {
       messages.value = messages.value.filter((m) => m.id !== userTempId && m.id !== aiTempId)
-      isStreaming.value = false
-      return
-    }
-
-    if (!res.ok || !res.body) {
-      let hint = '请求失败'
-      try {
-        const data = await res.json()
-        hint = data?.user_hint || data?.message || hint
-      } catch {}
-      const aiMsg = messages.value.find((m) => m.id === aiTempId)
-      if (aiMsg) aiMsg.content = `提示：${hint}`
-      return
-    }
-
-    let done = false
-    await readChatSse(res, {
-      onPayload: async (data: ChatStreamPayload) => {
-        if (done) return
-
-        if (data.event === 'meta' && data.conversation_id) {
-          // 将本地草稿替换成后端真实会话 id，并把标题生成出来
-          if (draftConversationId.value && conv.id === draftConversationId.value) {
-            const idx = conversations.value.findIndex((c) => c.id === conv.id)
-            if (idx >= 0) {
-              const title = q.length > 24 ? `${q.slice(0, 24)}…` : q
-              const updated: Conversation = {
-                ...conversations.value[idx],
-                id: data.conversation_id,
-                title: conversations.value[idx].title || title,
-                updated_at: new Date().toISOString(),
-                kb_id: selectedKb.value?.id,
-              }
-              conversations.value.splice(idx, 1, updated)
-              currentConversation.value = updated
-              draftConversationId.value = null
-            }
+    },
+    onMeta: (data) => {
+      if (!data.conversation_id) return
+      if (draftConversationId.value && conv.id === draftConversationId.value) {
+        const idx = conversations.value.findIndex((c) => c.id === conv.id)
+        if (idx >= 0) {
+          const title = q.length > 24 ? `${q.slice(0, 24)}…` : q
+          const updated: Conversation = {
+            ...conversations.value[idx],
+            id: data.conversation_id,
+            title: conversations.value[idx].title || title,
+            updated_at: new Date().toISOString(),
+            kb_id: selectedKb.value?.id,
           }
-          return
+          conversations.value.splice(idx, 1, updated)
+          currentConversation.value = updated
+          draftConversationId.value = null
         }
+      }
+    },
+    onChunk: () => queueMicrotask(scrollToBottom),
+  })
 
-        if (data.event === 'error' || data.code) {
-          const aiMsg = messages.value.find((m) => m.id === aiTempId)
-          if (aiMsg) aiMsg.content = `提示：${String(data.content || '处理失败')}`
-          done = true
-          return
-        }
-
-        if (data.content) {
-          const aiMsg = messages.value.find((m) => m.id === aiTempId)
-          if (aiMsg) {
-            applyChatStreamToAssistant(data, aiMsg)
-            queueMicrotask(scrollToBottom)
-          }
-        }
-
-        if (data.finished) {
-          done = true
-        }
-      },
-    })
-  } catch (e) {
-    if (isAbortError(e)) return
-    console.error('发送失败:', e)
-    const aiMsg = messages.value.find((m) => m.id === aiTempId)
-    if (aiMsg) aiMsg.content = '提示：请求失败，请稍后重试'
-  } finally {
-    isStreaming.value = false
-    streamingAssistantId.value = null
-    streamCtrl = null
-  }
+  if (result === 'unauthorized') return
 }
 
 const newChat = () => {
@@ -580,158 +434,22 @@ const newChat = () => {
 }
 
 
-// 点击外部关闭下拉菜单
-const handleClickOutside = (e: MouseEvent) => {
-  const target = e.target as HTMLElement | null
-  if (!target) return
-
-  if (settingsMenu.value && userInfo.value && !settingsMenu.value.contains(target) && !userInfo.value.contains(target)) {
-    showSettings.value = false
-  }
-}
-
 onMounted(() => {
-  document.addEventListener('click', handleClickOutside)
   void loadKnowledgeBases()
   void loadConversations()
 })
 
-onUnmounted(() =>{ 
-  document.removeEventListener('click', handleClickOutside)
-  if (streamCtrl) {
-    streamCtrl.abort()
-    streamCtrl = null
-  }
+onUnmounted(() => {
+  abortChatStream()
 })
 </script>
 
 <style scoped>
-.page-root {
-  height: 100vh;
-  background: #f5f5f5;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-.top-nav {
-  height: 48px;
-  background: #fff;
-  border-bottom: 1px solid #e8e8e8;
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  justify-content: space-between;
-}
-
-.nav-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.btn-collapse {
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #666;
-}
-
-.btn-collapse:hover {
-  background: #f5f5f5;
-}
-
-.nav-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.user-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 6px;
-}
-
-.user-info:hover {
-  background: #f5f5f5;
-}
-
-.user-avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--dp-primary);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.user-name {
-  font-size: 14px;
-  color: #333;
-}
-
-.settings-menu {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 8px;
-  background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  padding: 8px;
-  min-width: 180px;
-  display: none;
-  z-index: 100;
-}
-
-.settings-menu.show {
-  display: block;
-}
-
-.settings-item {
-  padding: 10px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 13px;
-  color: #333;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.settings-item:hover {
-  background: #f5f5f5;
-}
-
-.settings-item.logout {
-  color: #6b7280;
-}
-
-.settings-divider {
-  height: 1px;
-  background: #f0f0f0;
-  margin: 8px 0;
-}
-
 .main-container {
   display: flex;
-  height: calc(100vh - 48px);
+  flex: 1;
+  min-height: 0;
+  background: #f5f5f5;
 }
 
 .sidebar-left {
@@ -961,7 +679,7 @@ onUnmounted(() =>{
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: #f5f5f5;
+  background: #fff;
 }
 
 .chat-header {
@@ -983,6 +701,7 @@ onUnmounted(() =>{
   flex: 1;
   overflow-y: auto;
   padding: 16px;
+  background: #fff;
 }
 
 .message {
