@@ -1,18 +1,39 @@
-# DocPaws 本地基础设施：Redis（缓存 + Celery）+ MinIO（对象存储）
+# DocPaws 本地基础设施：PostgreSQL + Redis（缓存 + Celery）+ MinIO（对象存储）
 #
 # 启动：docker compose up -d
 # 停止：docker compose down
 # 查看：docker compose ps
 #
-# 本机 backend/.env 需对齐（见 .env.example 中 Redis / MinIO 段）：
+# 本机 backend/.env 需对齐（见 .env.example）：
+#   DATABASE_URL=postgresql+psycopg://docpaws:docpaws@127.0.0.1:5432/docpaws
 #   CELERY_BROKER_URL=redis://127.0.0.1:6379/1
 #   CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/2
 #   CACHE_REDIS_URL=redis://127.0.0.1:6379/0
 #   S3_ENDPOINT_INTERNAL=http://127.0.0.1:9000
 #
+# 不设 DATABASE_URL 时默认 SQLite（backend/data/docpaws.db）。
 # API / Celery worker 仍在本机运行（conda + uvicorn / celery worker）。
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: docpaws-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: docpaws
+      POSTGRES_PASSWORD: docpaws
+      POSTGRES_DB: docpaws
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U docpaws -d docpaws"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   redis:
     image: redis:7-alpine
     container_name: docpaws-redis
@@ -63,5 +84,6 @@ services:
     restart: "no"
 
 volumes:
+  pg_data:
   redis_data:
   minio_data:

@@ -56,7 +56,15 @@ cp .env.example .env   # 若无则复制 .env，填入 API Key 等
 uvicorn docpaws.main:app --reload --port 8000
 ```
 
-本地数据统一落在 `backend/data/`（SQLite、`uploads/`、FAISS `indexes/`），路径由 `.env` 的 `DATA_DIR` 等配置，相对路径均相对 `backend/` 解析。
+数据库默认 SQLite（`backend/data/docpaws.db`）；设 `DATABASE_URL` 可切 PostgreSQL（见 `.env.example`，需 `docker compose up -d postgres`）。上传与 FAISS 索引仍在 `backend/data/`（`DATA_DIR` / `INDEX_DIR`），相对路径均相对 `backend/` 解析。
+
+PostgreSQL 集成测试（默认跳过，使用独立库 `docpaws_test`）：
+
+```bash
+docker compose up -d postgres
+cd backend
+RUN_PG_INTEGRATION=1 pytest tests/test_pg_integration.py -m pg -v
+```
 
 ## API 文档
 

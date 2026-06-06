@@ -1,4 +1,4 @@
-﻿"""
+"""
 App 工厂：中间件 / 异常处理 / 路由注册 / 静态挂载 / 启动事件
 
 只做框架组装，不写业务逻辑。
@@ -65,7 +65,8 @@ def create_app() -> FastAPI:
     # ── 健康检查 & 根路由 ───────────────────────────────
     @app.get("/healthz")
     def healthz():
-        return {"status": "ok", "name": settings.APP_NAME, "version": "enterprise-v2"}
+        db = "sqlite" if settings.is_sqlite else "postgresql"
+        return {"status": "ok", "name": settings.APP_NAME, "version": "enterprise-v2", "db": db}
 
     @app.get("/")
     def root():

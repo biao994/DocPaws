@@ -17,6 +17,7 @@ python-multipart==0.0.29
 itsdangerous>=2.1.0
 uvicorn[standard]==0.31.1
 sqlmodel==0.0.22
+psycopg[binary]==3.2.9
 pydantic[email]==2.11.7
 aiofiles==24.1.0
 bcrypt>=4.0,<5

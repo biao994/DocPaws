@@ -47,9 +47,25 @@ class Settings:
     PORT = int(os.getenv("PORT", "8000"))
 
     # 数据目录
-    DATA_DIR =  _BASE_DIR / "backend"/"data"
-    DB_PATH = str(DATA_DIR/ "docpaws.db")
-    UPLOAD_DIR = str(DATA_DIR/ "uploads")
+    DATA_DIR = _BASE_DIR / "backend" / "data"
+    DB_PATH = str(DATA_DIR / "docpaws.db")
+    UPLOAD_DIR = str(DATA_DIR / "uploads")
+
+    @property
+    def database_url(self) -> str:
+        """数据库连接 URL。实例级 _database_url 优先，其次环境变量，默认 SQLite。"""
+        override = getattr(self, "_database_url", None)
+        if override:
+            return override
+        env_url = os.getenv("DATABASE_URL", "").strip()
+        if env_url:
+            return env_url
+        db_path = getattr(self, "DB_PATH", Settings.DB_PATH)
+        return f"sqlite:///{db_path}"
+
+    @property
+    def is_sqlite(self) -> bool:
+        return self.database_url.startswith("sqlite")
     # FAISS 在 Windows 下对中文路径兼容较差，索引目录固定到纯英文路径
     INDEX_DIR = os.getenv("INDEX_DIR", "C:/docpaws_data/w1/indexes")
 
@@ -73,7 +89,7 @@ class Settings:
     CACHE_REDIS_PREFIX = os.getenv("CACHE_REDIS_PREFIX", "docpaws:retrieve:")
     RETRIEVAL_CACHE_TTL_SECONDS = int(os.getenv("RETRIEVAL_CACHE_TTL_SECONDS", "600"))
     # FAISS L2 距离上限（越小越相似）；<=0 表示不按距离过滤（仅空结果拒答）
-    RETRIEVAL_MAX_DISTANCE = float(os.getenv("RETRIEVAL_MAX_DISTANCE", "1.2"))
+    RETRIEVAL_MAX_DISTANCE = float(os.getenv("RETRIEVAL_MAX_DISTANCE", "1.26"))
 
     CACHE_REDIS_MAX_CONNECTIONS = int(os.getenv("CACHE_REDIS_MAX_CONNECTIONS", "50"))
     CACHE_REDIS_CONNECT_TIMEOUT_SECONDS = float(os.getenv("CACHE_REDIS_CONNECT_TIMEOUT_SECONDS", "2"))

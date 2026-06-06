@@ -1,5 +1,5 @@
 ﻿"""
-SQLite 轻量 schema 迁移：补列、从 folder_path 回填 Folder 树
+轻量 schema 迁移：补列、从 folder_path 回填 Folder 树（SQLite / PostgreSQL）
 """
 from __future__ import annotations
 
@@ -39,7 +39,8 @@ def run_migrations() -> None:
 
         if _table_exists(inspector, "conversation"):
             if not _column_exists(inspector, "conversation", "scope_type"):
-                conn.execute(text("ALTER TABLE conversation ADD COLUMN scope_type VARCHAR DEFAULT 'kb'"))
+                conn.execute(text("ALTER TABLE conversation ADD COLUMN scope_type VARCHAR"))
+                conn.execute(text("UPDATE conversation SET scope_type = 'kb' WHERE scope_type IS NULL"))
                 logger.info("Added conversation.scope_type column")
             if not _column_exists(inspector, "conversation", "scope_id"):
                 conn.execute(text("ALTER TABLE conversation ADD COLUMN scope_id VARCHAR"))
