@@ -559,7 +559,7 @@ async def _stream_answer_events(
     except FileNotFoundError:
         yield {
             "type": "error",
-            "code": "INDEX_FILE_NOT_FOUND",
+            "code": ErrorCode.INDEX_FILE_NOT_FOUND,
             "content": "索引文件不存在",
             "request_id": request_id,
             "finished": True,
@@ -711,7 +711,7 @@ async def _stream_answer_events(
         logger.exception(f"agent stream failed: {e}")
         yield {
             "type": "error",
-            "code": "RETRIEVAL_FAILED",
+            "code": ErrorCode.RETRIEVAL_FAILED,
             "content": "对话服务暂时不可用",
             "request_id": request_id,
             "finished": True,

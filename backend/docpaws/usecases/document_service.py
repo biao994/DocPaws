@@ -10,6 +10,7 @@ from typing import Optional
 from fastapi import UploadFile
 from sqlmodel import Session
 
+from docpaws.api.response import ErrorCode
 from docpaws.domain.datetime_utils import utc_now
 from docpaws.api.schemas.documents import DocumentData, DocumentDeleteData, UploadData
 from docpaws.domain.models.document import Document, FileObject, KbFile
@@ -40,7 +41,7 @@ def normalize_folder_path(folder_path: Optional[str]) -> Optional[str]:
         return None
     if any(seg in {".", ".."} for seg in parts):
         raise AppError(
-            error_code="VALIDATION_ERROR",
+            error_code=ErrorCode.VALIDATION_ERROR,
             message="非法 folder_path",
             status_code=400,
         )
@@ -119,7 +120,7 @@ def _folder_and_filename_from_relative(rel: str) -> tuple[Optional[str], str]:
     """relative_paths 单项：'a/b.pdf' -> (folder 'a', filename 'b.pdf')"""
     rel = rel.replace("\\", "/").strip()
     if not rel:
-        raise AppError(error_code="VALIDATION_ERROR", message="relative_paths 含空项", status_code=400)
+        raise AppError(error_code=ErrorCode.VALIDATION_ERROR, message="relative_paths 含空项", status_code=400)
     name = os.path.basename(rel) or "document.pdf"
     parent = os.path.dirname(rel).replace("\\", "/").strip()
     if parent in {"", ".", "/"}:
@@ -164,7 +165,7 @@ async def _ingest_one_pdf_create_no_commit(
             normalized = f"{base}_{ts}{ext}"
             auto_renamed = True
         else:
-            raise AppError(error_code="VALIDATION_ERROR", message="无法生成唯一文件名", status_code=400)
+            raise AppError(error_code=ErrorCode.VALIDATION_ERROR, message="无法生成唯一文件名", status_code=400)
 
     if on_conflict == "create":
         from docpaws.infra.repos.document_repo import find_document
@@ -174,7 +175,7 @@ async def _ingest_one_pdf_create_no_commit(
         )
         if existing:
             raise AppError(
-                error_code="NAME_CONFLICT",
+                error_code=ErrorCode.NAME_CONFLICT,
                 message="该位置已存在同名文档",
                 status_code=409,
                 details={
@@ -281,16 +282,16 @@ async def commit_documents_batch(
     """
     batch_max = 100
     if not entries:
-        raise AppError(error_code="VALIDATION_ERROR", message="至少上传一个 PDF 文件", status_code=400)
+        raise AppError(error_code=ErrorCode.VALIDATION_ERROR, message="至少上传一个 PDF 文件", status_code=400)
     if len(entries) > batch_max:
         raise AppError(
-            error_code="VALIDATION_ERROR",
+            error_code=ErrorCode.VALIDATION_ERROR,
             message=f"单次最多上传 {batch_max} 个文件",
             status_code=400,
         )
     if on_conflict not in {"create", "auto_rename"}:
         raise AppError(
-            error_code="VALIDATION_ERROR",
+            error_code=ErrorCode.VALIDATION_ERROR,
             message="批量上传仅支持 on_conflict=create 或 auto_rename",
             status_code=400,
         )
@@ -362,7 +363,7 @@ async def upload_document(
             normalized = f"{base}_{ts}{ext}"
             auto_renamed = True
         else:
-            raise AppError(error_code="VALIDATION_ERROR", message="无法生成唯一文件名", status_code=400)
+            raise AppError(error_code=ErrorCode.VALIDATION_ERROR, message="无法生成唯一文件名", status_code=400)
 
     if on_conflict == "create":
         from docpaws.infra.repos.document_repo import find_document
@@ -372,7 +373,7 @@ async def upload_document(
         )
         if existing:
             raise AppError(
-                error_code="NAME_CONFLICT",
+                error_code=ErrorCode.NAME_CONFLICT,
                 message="该位置已存在同名文档",
                 status_code=409,
                 details={
@@ -558,13 +559,13 @@ def _handle_replace(
 
     document = session.get(Document, rid)
     if not document or document.kb_id != kb_id:
-        raise AppError(error_code="DOCUMENT_NOT_FOUND", message="文档不存在或已被删除", status_code=404)
+        raise AppError(error_code=ErrorCode.DOCUMENT_NOT_FOUND, message="文档不存在或已被删除", status_code=404)
     if not document.kb_file_id:
-        raise AppError(error_code="VALIDATION_ERROR", message="该文档无文件记录，无法替换上传", status_code=400)
+        raise AppError(error_code=ErrorCode.VALIDATION_ERROR, message="该文档无文件记录，无法替换上传", status_code=400)
 
     kb_file = session.get(KbFile, document.kb_file_id)
     if not kb_file:
-        raise AppError(error_code="VALIDATION_ERROR", message="文件记录不存在", status_code=400)
+        raise AppError(error_code=ErrorCode.VALIDATION_ERROR, message="文件记录不存在", status_code=400)
 
     old_fo_id = kb_file.file_object_id
 
@@ -674,13 +675,13 @@ def update_document_title(session: Session, *, document_id: str, title: str) -> 
 
     clean = (title or "").strip()
     if not clean:
-        raise AppError(error_code="VALIDATION_ERROR", message="文档名称不能为空", status_code=400)
+        raise AppError(error_code=ErrorCode.VALIDATION_ERROR, message="文档名称不能为空", status_code=400)
     if "/" in clean or "\\" in clean:
-        raise AppError(error_code="VALIDATION_ERROR", message='文档名称不能包含 "/"', status_code=400)
+        raise AppError(error_code=ErrorCode.VALIDATION_ERROR, message='文档名称不能包含 "/"', status_code=400)
 
     doc = get_document_by_id(session, document_id)
     if not doc:
-        raise AppError(error_code="DOCUMENT_NOT_FOUND", message="文档不存在或已被删除", status_code=404)
+        raise AppError(error_code=ErrorCode.DOCUMENT_NOT_FOUND, message="文档不存在或已被删除", status_code=404)
 
     base_title = os.path.splitext(clean)[0] if clean.lower().endswith(".pdf") else clean
     conflict = find_document(
@@ -692,7 +693,7 @@ def update_document_title(session: Session, *, document_id: str, title: str) -> 
     )
     if conflict and conflict.id != doc.id:
         raise AppError(
-            error_code="NAME_CONFLICT",
+            error_code=ErrorCode.NAME_CONFLICT,
             message="该位置已存在同名文档",
             status_code=409,
             details={"existing_document_id": conflict.id},
@@ -722,10 +723,10 @@ def build_batch_upload_entries(
 ) -> list[tuple[UploadFile, Optional[str], str]]:
     """构造 (file, folder_path, raw_filename) 列表并校验 PDF / 路径数量。"""
     if not files:
-        raise AppError(error_code="VALIDATION_ERROR", message="至少上传一个 PDF 文件", status_code=400)
+        raise AppError(error_code=ErrorCode.VALIDATION_ERROR, message="至少上传一个 PDF 文件", status_code=400)
     if relative_paths is not None and len(relative_paths) != len(files):
         raise AppError(
-            error_code="VALIDATION_ERROR",
+            error_code=ErrorCode.VALIDATION_ERROR,
             message="relative_paths 数组长度必须与文件数量一致",
             status_code=400,
         )
@@ -738,13 +739,13 @@ def build_batch_upload_entries(
         else:
             fp_i, raw_fn = base_fp, raw_stripped
         if not raw_fn:
-            raise AppError(error_code="VALIDATION_ERROR", message="文件名不能为空", status_code=400)
+            raise AppError(error_code=ErrorCode.VALIDATION_ERROR, message="文件名不能为空", status_code=400)
         is_pdf = raw_fn.lower().endswith(".pdf") or (file.content_type or "").lower() in {
             "application/pdf",
             "application/x-pdf",
         }
         if not is_pdf:
-            raise AppError(error_code="VALIDATION_ERROR", message="仅支持 PDF 文件", status_code=400)
+            raise AppError(error_code=ErrorCode.VALIDATION_ERROR, message="仅支持 PDF 文件", status_code=400)
         entries.append((file, fp_i, raw_fn if relative_paths else raw_stripped))
     return entries
 
@@ -767,7 +768,7 @@ class DocumentService:
         from docpaws.infra.repos.document_repo import list_documents as _list_docs
 
         if not get_kb_by_id(self.session, kb_id):
-            raise AppError(error_code="KB_NOT_FOUND", message="知识库不存在", status_code=404)
+            raise AppError(error_code=ErrorCode.KB_NOT_FOUND, message="知识库不存在", status_code=404)
 
         folder_path_filter = normalize_folder_path(folder_path_filter)
         items, total = _list_docs(
@@ -789,7 +790,7 @@ class DocumentService:
 
         doc = get_document_by_id(self.session, document_id)
         if not doc:
-            raise AppError(error_code="DOCUMENT_NOT_FOUND", message="文档不存在或已被删除", status_code=404)
+            raise AppError(error_code=ErrorCode.DOCUMENT_NOT_FOUND, message="文档不存在或已被删除", status_code=404)
         return _to_doc_data(doc)
 
     def get_document_file(self, *, document_id: str) -> tuple[str, str]:
@@ -804,14 +805,14 @@ class DocumentService:
         doc = get_document_by_id(self.session, document_id)
         if not doc:
             raise AppError(
-                error_code="DOCUMENT_NOT_FOUND",
+                error_code=ErrorCode.DOCUMENT_NOT_FOUND,
                 message="文档不存在或已被删除",
                 status_code=404,
             )
 
         if not doc.kb_file_id:
             raise AppError(
-                error_code="FILE_NOT_FOUND",
+                error_code=ErrorCode.FILE_NOT_FOUND,
                 message="文件记录不存在",
                 status_code=404,
             )
@@ -819,7 +820,7 @@ class DocumentService:
         kb_file = self.session.get(KbFile, doc.kb_file_id)
         if not kb_file or not kb_file.file_object_id:
             raise AppError(
-                error_code="FILE_NOT_FOUND",
+                error_code=ErrorCode.FILE_NOT_FOUND,
                 message="文件记录不存在",
                 status_code=404,
             )
@@ -827,7 +828,7 @@ class DocumentService:
         file_obj = self.session.get(FileObject, kb_file.file_object_id)
         if not file_obj or not file_obj.object_key:
             raise AppError(
-                error_code="FILE_NOT_FOUND",
+                error_code=ErrorCode.FILE_NOT_FOUND,
                 message="文件不存在",
                 status_code=404,
             )
@@ -844,14 +845,14 @@ class DocumentService:
         doc = get_document_by_id(self.session, document_id)
         if not doc:
             raise AppError(
-                error_code="DOCUMENT_NOT_FOUND",
+                error_code=ErrorCode.DOCUMENT_NOT_FOUND,
                 message="文档不存在或已被删除",
                 status_code=404,
             )
         key = (doc.thumbnail_key or "").strip()
         if not key:
             raise AppError(
-                error_code="FILE_NOT_FOUND",
+                error_code=ErrorCode.FILE_NOT_FOUND,
                 message="缩略图尚未生成",
                 status_code=404,
                 details={"document_id": document_id},

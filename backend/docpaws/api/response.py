@@ -16,6 +16,8 @@ class ErrorCode:
     EMAIL_ALREADY_REGISTERED = "EMAIL_ALREADY_REGISTERED"
     DOCUMENT_NOT_FOUND = "DOCUMENT_NOT_FOUND"
     FILE_NOT_FOUND = "FILE_NOT_FOUND"
+    FOLDER_NOT_FOUND = "FOLDER_NOT_FOUND"
+    FOLDER_NOT_EMPTY = "FOLDER_NOT_EMPTY"
     KB_NOT_FOUND = "KB_NOT_FOUND"
     KB_EMPTY = "KB_EMPTY"
     JOB_NOT_FOUND = "JOB_NOT_FOUND"
@@ -25,11 +27,13 @@ class ErrorCode:
     ANSWER_NOT_FOUND = "ANSWER_NOT_FOUND"
     INDEX_NOT_READY = "INDEX_NOT_READY"
     INDEX_FAILED = "INDEX_FAILED"
+    INDEX_FILE_NOT_FOUND = "INDEX_FILE_NOT_FOUND"
     DUPLICATE_REQUEST = "DUPLICATE_REQUEST"
     NAME_CONFLICT = "NAME_CONFLICT"
 
     # 5xx 服务端错误
     INTERNAL_ERROR = "INTERNAL_ERROR"
+    RETRIEVAL_FAILED = "RETRIEVAL_FAILED"
     SEARCH_SERVICE_UNAVAILABLE = "SEARCH_SERVICE_UNAVAILABLE"
 
     # 200 特殊情况
@@ -45,6 +49,8 @@ ERROR_CODE_TO_STATUS = {
     ErrorCode.EMAIL_ALREADY_REGISTERED: 409,
     ErrorCode.DOCUMENT_NOT_FOUND: 404,
     ErrorCode.FILE_NOT_FOUND: 404,
+    ErrorCode.FOLDER_NOT_FOUND: 404,
+    ErrorCode.FOLDER_NOT_EMPTY: 409,
     ErrorCode.KB_NOT_FOUND: 404,
     ErrorCode.KB_EMPTY: 404,
     ErrorCode.JOB_NOT_FOUND: 404,
@@ -54,9 +60,11 @@ ERROR_CODE_TO_STATUS = {
     ErrorCode.FEEDBACK_NOT_FOUND: 404,
     ErrorCode.INDEX_NOT_READY: 409,
     ErrorCode.INDEX_FAILED: 409,
+    ErrorCode.INDEX_FILE_NOT_FOUND: 404,
     ErrorCode.DUPLICATE_REQUEST: 409,
     ErrorCode.NAME_CONFLICT: 409,
     ErrorCode.INTERNAL_ERROR: 500,
+    ErrorCode.RETRIEVAL_FAILED: 500,
     ErrorCode.SEARCH_SERVICE_UNAVAILABLE: 503,
     ErrorCode.NO_HIT: 200,
 }
@@ -70,6 +78,8 @@ ERROR_CODE_TO_HINT = {
     ErrorCode.EMAIL_ALREADY_REGISTERED: "该邮箱已注册",
     ErrorCode.DOCUMENT_NOT_FOUND: "文档不存在或已被删除",
     ErrorCode.FILE_NOT_FOUND: "文件不存在或已被删除",
+    ErrorCode.FOLDER_NOT_FOUND: "文件夹不存在",
+    ErrorCode.FOLDER_NOT_EMPTY: "文件夹非空，无法删除",
     ErrorCode.KB_NOT_FOUND: "知识库不存在",
     ErrorCode.KB_EMPTY: "知识库为空,请先上传文档",
     ErrorCode.JOB_NOT_FOUND: "任务不存在",
@@ -79,9 +89,11 @@ ERROR_CODE_TO_HINT = {
     ErrorCode.ANSWER_NOT_FOUND: "答案不存在",
     ErrorCode.INDEX_NOT_READY: "文档正在处理中，请稍后再试",
     ErrorCode.INDEX_FAILED: "文档处理失败，请重新上传",
+    ErrorCode.INDEX_FILE_NOT_FOUND: "索引文件不存在",
     ErrorCode.DUPLICATE_REQUEST: "请勿重复提交",
     ErrorCode.NAME_CONFLICT: "该位置已存在同名文档，请选择替换或保留全部",
     ErrorCode.INTERNAL_ERROR: "系统繁忙，请稍后重试",
+    ErrorCode.RETRIEVAL_FAILED: "对话服务暂时不可用",
     ErrorCode.SEARCH_SERVICE_UNAVAILABLE: "检索服务暂时不可用，请稍后重试",
     ErrorCode.NO_HIT: "知识库中没有找到相关内容",
 }

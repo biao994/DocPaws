@@ -22,6 +22,7 @@ import {
   isPendingUploadDocument,
   mergeRestoreUploadTasks,
 } from '../utils/kbUploadProgress'
+import { ErrorCode } from '../utils/errors'
 
 export type KbUploadTarget = { id: string }
 
@@ -465,7 +466,7 @@ export function useKbPersonalUpload(opts: {
         return undefined
       }
       const body = getApiErrorPayload(e)
-      if (body?.error_code === 'NAME_CONFLICT') {
+      if (body?.error_code === ErrorCode.NAME_CONFLICT) {
         if (!reuseTask) {
           uploadTasks.value = uploadTasks.value.filter((x) => x.id !== task.id)
         }
@@ -483,7 +484,7 @@ export function useKbPersonalUpload(opts: {
     if (!isAxiosError(err)) return false
     if (err.response?.status !== 409) return false
     const body = getApiErrorPayload(err)
-    return body?.error_code === 'NAME_CONFLICT'
+    return body?.error_code === ErrorCode.NAME_CONFLICT
   }
 
   const uploadWithConflictFlow = async (

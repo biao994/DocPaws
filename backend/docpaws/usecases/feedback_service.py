@@ -54,7 +54,7 @@ def _create_feedback_impl(
         )
 
     if rating not in ("like", "dislike"):
-        raise AppError(error_code="VALIDATION_ERROR", message="rating 必须是 like 或 dislike", status_code=400)
+        raise AppError(error_code=ErrorCode.VALIDATION_ERROR, message="rating 必须是 like 或 dislike", status_code=400)
 
     fb = Feedback(answer_id=answer_id, user_id=user_id, rating=rating, comment=comment)
     session.add(fb)
