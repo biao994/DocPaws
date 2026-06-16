@@ -23,8 +23,6 @@ def api_chat(
     svc: ChatService = Depends(get_chat_service),
 ):
     """非流式问答（将流式输出聚合为一次性返回）"""
-    svc.ensure_kb_and_index_ready(kb_id=req.kb_id, user_id=current_user.id)
-
     request_id = request.state.request_id
 
     uid = current_user.id
@@ -83,7 +81,6 @@ def api_chat_stream(
     svc: ChatService = Depends(get_chat_service),
 ):
     """流式问答 (SSE)"""
-    svc.ensure_kb_and_index_ready(kb_id=req.kb_id, user_id=current_user.id)
     request_id = request.state.request_id
 
     async def sse_generator():

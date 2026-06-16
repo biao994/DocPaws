@@ -331,7 +331,9 @@ function onScopeRestored(scope: {
     resetPathHistory(scope.folder_id)
     return
   }
-  selectKbScope()
+  // kb 范围：只同步浏览位置，不能 markKbSessionsStale（会清掉续聊用的 conversation_id）
+  selectedDoc.value = null
+  pathNavigateTo(null)
 }
 
 const toggleMiddleSidebar = () => {
@@ -723,7 +725,7 @@ const handleCancelUploadTask = async (taskId: string) => {
 }
 
 const sendQuestion = async () => {
-  if (!questionInput.value.trim()) return
+  if (!questionInput.value.trim() || modalIsStreaming.value) return
   await openChatModalFromInput()
   let question = questionInput.value.trim()
   if (attachmentFileName.value) {

@@ -79,8 +79,12 @@ export async function streamChatResponse(options: StreamChatOptions): Promise<St
     onPayload: async (data: ChatStreamPayload) => {
       if (done) return
 
-      if (data.event === 'meta' && data.conversation_id) {
+      // 任意事件只要带 conversation_id 就通知（meta / answer_chunk.finished 均可能携带）
+      if (data.conversation_id) {
         onMeta?.(data)
+      }
+
+      if (data.event === 'meta') {
         return
       }
 

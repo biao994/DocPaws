@@ -16,7 +16,7 @@ import {
   scopeFromConversation,
   type ChatScopePayload,
 } from '../api/chatScope'
-import { isAbortError } from '../utils/errors'
+import { getApiErrorHint, isAbortError } from '../utils/errors'
 
 export type KbModalChatTarget = { id: string }
 
@@ -68,15 +68,13 @@ export function useKbModalChat(opts: {
   /** 防止异步加载历史覆盖用户正在进行的对话 */
   let conversationLoadToken = 0
 
-  const bindConversationIdFromStream = (
+  const assignConversationId = (
     conversationId: string,
     scope: ChatScopePayload,
   ) => {
-    if (!modalConversationId.value) {
-      modalConversationId.value = conversationId
-      if (!lockedScope.value) {
-        lockedScope.value = scope
-      }
+    modalConversationId.value = conversationId
+    if (!lockedScope.value) {
+      lockedScope.value = scope
     }
   }
 
@@ -104,8 +102,10 @@ export function useKbModalChat(opts: {
 
   const currentScope = (): ChatScopePayload => opts.getChatScope?.() ?? { scope_type: 'kb' }
 
-  const buildModalScopeKey = (kbId: string) =>
-    `${kbId}|${chatScopeCacheKey(currentScope())}`
+  const buildModalScopeKey = (kbId: string) => {
+    const scope = lockedScope.value ?? currentScope()
+    return `${kbId}|${chatScopeCacheKey(scope)}`
+  }
 
   const markKbSessionsStale = () => {
     conversationLoadToken += 1
@@ -115,8 +115,14 @@ export function useKbModalChat(opts: {
     lockedScope.value = null
   }
 
+  /** 续聊用会话锁定范围；新会话用当前浏览位置 */
+  const effectiveScope = computed((): ChatScopePayload => {
+    if (lockedScope.value) return lockedScope.value
+    return opts.getChatScope?.() ?? { scope_type: 'kb' }
+  })
+
   const loadModalConversations = async (kbId: string) => {
-    const scopeParams = listConversationsQueryParams(currentScope())
+    const scopeParams = listConversationsQueryParams(effectiveScope.value)
     const res = await listKbConversations(kbId, {
       page: 1,
       page_size: 50,
@@ -127,27 +133,29 @@ export function useKbModalChat(opts: {
     return items
   }
 
-  const applyConversationScope = (data: {
-    scope_type?: string
-    scope_id?: string | null
-  }) => {
+  const applyConversationScope = (
+    data: {
+      scope_type?: string
+      scope_id?: string | null
+    },
+    options?: { syncBrowseUi?: boolean },
+  ) => {
     const scope = scopeFromConversation(data)
     lockedScope.value = scope
-    opts.onScopeRestored?.(scope)
+    if (options?.syncBrowseUi !== false) {
+      opts.onScopeRestored?.(scope)
+    }
   }
 
-  /** 续聊用会话锁定范围；新会话用当前浏览位置 */
-  const effectiveScope = computed((): ChatScopePayload => {
-    if (lockedScope.value) return lockedScope.value
-    return opts.getChatScope?.() ?? { scope_type: 'kb' }
-  })
-
-  const loadModalConversationMessages = async (conversationId: string) => {
+  const loadModalConversationMessages = async (
+    conversationId: string,
+    options?: { syncBrowseUi?: boolean },
+  ) => {
     const loadToken = conversationLoadToken
     const res = await getConversation(conversationId)
     if (loadToken !== conversationLoadToken) return
     const data = res.data?.data
-    if (data) applyConversationScope(data)
+    if (data) applyConversationScope(data, options)
     const items = data?.messages || []
     modalMessages.value = items.map(
       (m: {
@@ -180,6 +188,12 @@ export function useKbModalChat(opts: {
       // 用户已在当前范围发起新提问时，不要用「最近会话」覆盖进行中的对话
       if (modalIsStreaming.value || modalMessages.value.length > 0) {
         modalLoadedScopeKey.value = key
+        // 本地已有消息但尚未绑定会话 id 时，尽量挂上最近一条以便续聊
+        if (!modalConversationId.value) {
+          if (items[0]?.id) {
+            assignConversationId(items[0].id, resolveRequestScope())
+          }
+        }
         return
       }
       modalLoadedScopeKey.value = key
@@ -290,6 +304,8 @@ export function useKbModalChat(opts: {
   }
 
   const askInModal = async (rawQuestion: string) => {
+    if (modalIsStreaming.value) return
+
     const kb = await opts.ensureSelectedKb()
     if (!kb) {
       alert('个人知识库初始化失败，请检查后端服务')
@@ -305,6 +321,7 @@ export function useKbModalChat(opts: {
     modalStreamingAssistantId.value = aiId
     const scope = resolveRequestScope()
     const scopeBody = buildChatScopeBody(scope)
+    const conversationIdForRequest = modalConversationId.value ?? undefined
     try {
       disposeStream()
       modalStreamCtrl = new AbortController()
@@ -315,7 +332,7 @@ export function useKbModalChat(opts: {
             body: {
               kb_id: kb.id,
               question: rawQuestion,
-              conversation_id: modalConversationId.value || undefined,
+              conversation_id: modalConversationId.value || conversationIdForRequest,
               ...scopeBody,
               chat_mode: chatMode.value,
             },
@@ -325,13 +342,13 @@ export function useKbModalChat(opts: {
             getAssistantMsg: () => modalMessages.value.find((m) => m.id === aiId),
             onMeta: (data) => {
               if (data.conversation_id) {
-                bindConversationIdFromStream(data.conversation_id, scope)
+                assignConversationId(data.conversation_id, scope)
               }
             },
             onFinished: (data) => {
               streamOk = true
               if (data.conversation_id) {
-                bindConversationIdFromStream(data.conversation_id, scope)
+                assignConversationId(data.conversation_id, scope)
               }
             },
           })
@@ -342,7 +359,10 @@ export function useKbModalChat(opts: {
             return
           }
           if (streamOk) break
-        } catch {
+        } catch (streamErr) {
+          if (isAbortError(streamErr)) throw streamErr
+          // 业务错误（含 user_hint）不重试，交给外层统一展示
+          if (getApiErrorHint(streamErr, '')) throw streamErr
           /* retry on transient network errors */
         }
         if (attempt === 1) break
@@ -353,7 +373,7 @@ export function useKbModalChat(opts: {
         const res = await postChat({
           kb_id: kb.id,
           question: rawQuestion,
-          conversation_id: modalConversationId.value || undefined,
+          conversation_id: modalConversationId.value || conversationIdForRequest,
           ...scopeBody,
           chat_mode: chatMode.value,
         })
@@ -363,21 +383,25 @@ export function useKbModalChat(opts: {
           msg.citations = (res.data?.data?.citations as KbModalCitation[] | undefined) ?? []
         }
         if (res.data?.data?.conversation_id) {
-          modalConversationId.value = res.data.data.conversation_id
-          if (!lockedScope.value) lockedScope.value = scope
+          assignConversationId(res.data.data.conversation_id, scope)
         }
       } else if (!modalConversationId.value) {
         const items = await loadModalConversations(kb.id)
         if (items[0]?.id) {
-          modalConversationId.value = items[0].id
+          assignConversationId(items[0].id, scope)
         }
       }
       await loadModalConversations(kb.id)
+      if (modalConversationId.value) {
+        await loadModalConversationMessages(modalConversationId.value, { syncBrowseUi: false })
+      }
     } catch (error) {
       if (isAbortError(error)) return
       console.error('Ask in modal failed:', error)
       const msg = modalMessages.value.find((m) => m.id === aiId)
-      if (msg) msg.content = '请求失败，请重试'
+      if (msg) {
+        msg.content = `提示：${getApiErrorHint(error, '请求失败，请稍后重试')}`
+      }
     } finally {
       modalIsStreaming.value = false
       modalStreamingAssistantId.value = null

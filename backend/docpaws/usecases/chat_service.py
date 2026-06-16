@@ -42,6 +42,67 @@ logger = logging.getLogger(__name__)
 # 检索未过阈值 / 无命中时的统一拒答（工具与 Agent 预检共用）
 INSUFFICIENT_RETRIEVAL_MSG = "未检索到足够相关内容，无法基于文档回答。"
 
+
+def _persist_assistant_reply(
+    session: Session,
+    *,
+    conversation_id: str,
+    question_message_id: str,
+    answer_text: str,
+    model_name: str,
+) -> tuple[Answer, Message]:
+    """保存助手回复（含失败提示），便于会话历史回放。"""
+    answer = Answer(
+        conversation_id=conversation_id,
+        question_message_id=question_message_id,
+        version=1,
+        is_current=True,
+        answer_text=answer_text,
+        citations=[],
+        model_name=model_name,
+    )
+    session.add(answer)
+    session.commit()
+    session.refresh(answer)
+    assistant_msg = Message(
+        conversation_id=conversation_id,
+        role="assistant",
+        content=answer_text,
+        answer_id=answer.id,
+    )
+    session.add(assistant_msg)
+    session.commit()
+    session.refresh(assistant_msg)
+    return answer, assistant_msg
+
+
+def _finished_answer_chunk(
+    session: Session,
+    *,
+    conversation_id: str,
+    question_message_id: str,
+    answer_text: str,
+    model_name: str,
+    request_id: str,
+) -> dict:
+    answer, assistant_msg = _persist_assistant_reply(
+        session,
+        conversation_id=conversation_id,
+        question_message_id=question_message_id,
+        answer_text=answer_text,
+        model_name=model_name,
+    )
+    return {
+        "type": "answer_chunk",
+        "content": answer_text,
+        "request_id": request_id,
+        "finished": True,
+        "conversation_id": conversation_id,
+        "message_id": assistant_msg.id,
+        "answer_id": answer.id,
+        "citations": [],
+    }
+
 _WS_RE = re.compile(r"\s+")
 _META_PREFLIGHT_SKIP_RE = re.compile(
     r"(几个|多少|有哪些|列出|列表).{0,12}(文件|文档)|"
@@ -458,12 +519,6 @@ async def _stream_answer_events(
         yield {"type": "error", "code": e.error_code, "content": e.message}
         return
 
-    # 2. 获取激活的索引产物
-    artifact = get_active_index_artifact(session, kb_id)
-    if not artifact:
-        yield {"type": "answer_chunk", "content": "索引未就绪", "finished": True, "message_id": "", "citations": []}
-        return
-
     from docpaws.usecases.chat_scope import (
         SCOPE_FOLDER,
         build_faiss_filter,
@@ -474,7 +529,7 @@ async def _stream_answer_events(
         validate_scope,
     )
 
-    # 3. 创建/获取会话（meta 阶段会尽早返回 conversation_id，便于前端跳转）
+    # 2. 创建/获取会话（meta 阶段会尽早返回 conversation_id，便于前端跳转）
     cid = conversation_id
     conv: Conversation | None = None
     if cid:
@@ -527,7 +582,47 @@ async def _stream_answer_events(
         "question_message_id": user_msg.id,
     }
 
-    # 6. 范围内是否有可检索文档（空文件夹等场景，不必加载向量库）
+    # 6. 知识库/索引就绪（用户消息已落库，拒答也写入助手消息以便历史回放）
+    from docpaws.infra.repos.document_repo import has_any_document, has_any_chunk
+
+    kb_empty_hint = ERROR_CODE_TO_HINT.get(ErrorCode.KB_EMPTY, "知识库为空,请先上传文档")
+    if not has_any_document(session, kb_id):
+        yield _finished_answer_chunk(
+            session,
+            conversation_id=cid,
+            question_message_id=user_msg.id,
+            answer_text=kb_empty_hint,
+            model_name=model_name,
+            request_id=request_id,
+        )
+        return
+
+    if not has_any_chunk(session, kb_id):
+        yield _finished_answer_chunk(
+            session,
+            conversation_id=cid,
+            question_message_id=user_msg.id,
+            answer_text=kb_empty_hint,
+            model_name=model_name,
+            request_id=request_id,
+        )
+        return
+
+    artifact = get_active_index_artifact(session, kb_id)
+    if not artifact:
+        yield _finished_answer_chunk(
+            session,
+            conversation_id=cid,
+            question_message_id=user_msg.id,
+            answer_text=ERROR_CODE_TO_HINT.get(
+                ErrorCode.INDEX_NOT_READY, "文档正在处理中，请稍后再试"
+            ),
+            model_name=model_name,
+            request_id=request_id,
+        )
+        return
+
+    # 7. 范围内是否有可检索文档（空文件夹等场景，不必加载向量库）
     doc_ids = document_ids_for_scope(
         session, kb_id=kb_id, scope_type=scope_type, scope_id=scope_id
     )
@@ -537,15 +632,14 @@ async def _stream_answer_events(
             if scope_type == SCOPE_FOLDER
             else "当前范围内暂无可检索内容"
         )
-        yield {
-            "type": "answer_chunk",
-            "content": empty_msg,
-            "request_id": request_id,
-            "finished": True,
-            "conversation_id": cid,
-            "message_id": "",
-            "citations": [],
-        }
+        yield _finished_answer_chunk(
+            session,
+            conversation_id=cid,
+            question_message_id=user_msg.id,
+            answer_text=empty_msg,
+            model_name=model_name,
+            request_id=request_id,
+        )
         return
 
     # FAISS metadata 过滤 + 检索缓存 scope 标识（预检与 Agent 工具共用）
@@ -557,14 +651,16 @@ async def _stream_answer_events(
     try:
         _, vectorstore = build_retriever(artifact.index_path)
     except FileNotFoundError:
-        yield {
-            "type": "error",
-            "code": ErrorCode.INDEX_FILE_NOT_FOUND,
-            "content": "索引文件不存在",
-            "request_id": request_id,
-            "finished": True,
-            "conversation_id": cid,
-        }
+        yield _finished_answer_chunk(
+            session,
+            conversation_id=cid,
+            question_message_id=user_msg.id,
+            answer_text=ERROR_CODE_TO_HINT.get(
+                ErrorCode.INDEX_FILE_NOT_FOUND, "索引文件不存在"
+            ),
+            model_name=model_name,
+            request_id=request_id,
+        )
         return
 
     history_text = get_recent_history_text(session, cid, limit=10)
@@ -622,37 +718,14 @@ async def _stream_answer_events(
         if not preflight_docs:
             # 预检失败仍完整落库，前端收到 finished answer_chunk 即结束流
             reject_msg = INSUFFICIENT_RETRIEVAL_MSG
-            answer = Answer(
+            yield _finished_answer_chunk(
+                session,
                 conversation_id=cid,
                 question_message_id=user_msg.id,
-                version=1,
-                is_current=True,
                 answer_text=reject_msg,
-                citations=[],
                 model_name=model_name,
+                request_id=request_id,
             )
-            session.add(answer)
-            session.commit()
-            session.refresh(answer)
-            assistant_msg = Message(
-                conversation_id=cid,
-                role="assistant",
-                content=reject_msg,
-                answer_id=answer.id,
-            )
-            session.add(assistant_msg)
-            session.commit()
-            session.refresh(assistant_msg)
-            yield {
-                "type": "answer_chunk",
-                "content": reject_msg,
-                "request_id": request_id,
-                "finished": True,
-                "conversation_id": cid,
-                "message_id": assistant_msg.id,
-                "answer_id": answer.id,
-                "citations": [],
-            }
             return
 
     # 10. Agent 流式生成：按需调用检索/统计/列表等工具，逐段推送 answer_chunk
@@ -709,14 +782,16 @@ async def _stream_answer_events(
                 }
     except Exception as e:
         logger.exception(f"agent stream failed: {e}")
-        yield {
-            "type": "error",
-            "code": ErrorCode.RETRIEVAL_FAILED,
-            "content": "对话服务暂时不可用",
-            "request_id": request_id,
-            "finished": True,
-            "conversation_id": cid,
-        }
+        yield _finished_answer_chunk(
+            session,
+            conversation_id=cid,
+            question_message_id=user_msg.id,
+            answer_text=ERROR_CODE_TO_HINT.get(
+                ErrorCode.RETRIEVAL_FAILED, "对话服务暂时不可用"
+            ),
+            model_name=model_name,
+            request_id=request_id,
+        )
         return
 
     answer_text = "".join(full)
@@ -784,42 +859,6 @@ class ChatService:
     def __init__(self, session: Session, cache_redis: redis.Redis | None = None):
         self.session = session
         self.cache_redis = cache_redis
-
-    def ensure_kb_and_index_ready(self, *, kb_id: str, user_id: str) -> None:
-        from docpaws.infra.repos.document_repo import has_any_document, has_any_chunk
-        from docpaws.infra.repos.index_repo import get_active_index_artifact
-
-        require_kb_owned(self.session, kb_id, user_id)
-
-        # 没有任何文档：空知识库
-        if not has_any_document(self.session, kb_id):
-            raise AppError(
-                error_code=ErrorCode.KB_EMPTY,
-                message="知识库为空",
-                status_code=get_status_code(ErrorCode.KB_EMPTY),
-                user_hint=ERROR_CODE_TO_HINT.get(ErrorCode.KB_EMPTY),
-                details={"kb_id": kb_id},
-            )    
-
-        # 有文档但没有任何 chunks（例如扫描版/空白 PDF，解析不到文本）：
-        # 对用户来说等价于“没有可检索内容”，在提问时提示 KB_EMPTY 即可。
-        if not has_any_chunk(self.session, kb_id):
-            raise AppError(
-                error_code=ErrorCode.KB_EMPTY,
-                message="知识库没有可检索内容",
-                status_code=get_status_code(ErrorCode.KB_EMPTY),
-                user_hint=ERROR_CODE_TO_HINT.get(ErrorCode.KB_EMPTY),
-                details={"kb_id": kb_id},
-            )
-
-        if not get_active_index_artifact(self.session, kb_id):
-            raise AppError(
-                error_code=ErrorCode.INDEX_NOT_READY,
-                message="索引未就绪，请先上传并索引文档",
-                status_code=get_status_code(ErrorCode.INDEX_NOT_READY),
-                user_hint=ERROR_CODE_TO_HINT.get(ErrorCode.INDEX_NOT_READY),
-                details={"kb_id": kb_id},
-            )
 
     def stream_answer(
         self,

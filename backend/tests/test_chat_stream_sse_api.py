@@ -21,7 +21,7 @@ def test_chat_stream_sse_returns_ids(auth_client, db_session, monkeypatch, tmp_p
     assert r.status_code == 200
     kb_id = r.json()["data"]["id"]
 
-    # 2) 满足 ensure_kb_and_index_ready：至少一条 Document + Chunk
+    # 2) 满足流式问答前置：至少一条 Document + Chunk + active IndexArtifact
     from docpaws.domain.models.document import Document, Chunk
     from docpaws.domain.models.index import IndexArtifact
 
