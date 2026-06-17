@@ -1,4 +1,4 @@
-## usecases 代码风格约定（DocPaws-Enterprise）
+## usecases 代码风格约定（DocPaws）
 
 > 全栈分层总览见 [layering.md](./layering.md)。
 
