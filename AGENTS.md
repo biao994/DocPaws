@@ -26,7 +26,7 @@
 
 - 新的 `select(...)` / `session.get` / 复杂查询 → `infra/repos/*`。
 - usecases 只做编排（事务边界、调 repo、组合结果）。
-- **已知遗留**：`chat_scope.py`、`document_service.py`、`kb_service.py` 仍有 inline ORM；**新增代码不要学**，动到旧代码时顺手抽到 repo。
+- **已知遗留**：`document_service.py`、`kb_service.py` 仍有 inline ORM；**新增代码不要学**，动到旧代码时顺手抽到 repo。（`chat_scope` 已拆至 `scope_repo` + `domain/services/chat_scope`）
 
 ### 3. 错误码用常量，前后端对齐
 
@@ -78,7 +78,7 @@
 
 | 区域 | 现状 | 目标 |
 |------|------|------|
-| `chat_scope.py` | 纯函数名但内含 ORM | `scope_repo` + `domain/services` |
+| ~~`chat_scope.py`~~ | ~~纯函数名但内含 ORM~~ | 已拆：`scope_repo` + `domain/services/chat_scope` + usecases 薄层 |
 | `document_service.py` | 900+ 行，async/同步混用 | 按域拆分 + 事务说明 |
 | `conversation_service` ↔ `chat_service` | citation hydrate 互调 | 抽到共享 helper 或 repo；**选定一种方案做完，不要两种各改一半** |
 
