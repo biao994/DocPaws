@@ -13,8 +13,8 @@
     assert body["error_code"] == "KB_NOT_FOUND"
 
 
-def test_chat_index_not_ready_returns_409(auth_client, db_session):
-    # 有文档/切片但尚未有 active 索引产物 → INDEX_NOT_READY
+def test_chat_index_not_ready_soft_rejects(auth_client, db_session):
+    # 有文档/切片但尚未有 active 索引产物 → 软拒答（200 + 提示文案），不抬成 HTTP 409
     r = auth_client.post(
         "/api/v1/knowledge-bases",
         json={"name": "kb1", "description": ""},
@@ -39,7 +39,7 @@ def test_chat_index_not_ready_returns_409(auth_client, db_session):
             "conversation_id": None,
         },
     )
-    assert r2.status_code == 409
+    assert r2.status_code == 200
     body = r2.json()
-    assert body["error_code"] == "INDEX_NOT_READY"
+    assert "正在处理中" in (body["data"]["answer"] or "")
 
