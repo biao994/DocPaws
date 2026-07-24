@@ -141,11 +141,8 @@ DocPaws/
 
 ## Star History
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=biao994/DocPaws&type=Date&theme=dark" />
-  <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=biao994/DocPaws&type=Date" />
-  <img alt="DocPaws Star History" src="https://api.star-history.com/svg?repos=biao994/DocPaws&type=Date" width="80%" />
-</picture>
+<!-- star-history:start -->
+<!-- star-history:end -->
 
 ## 许可证
 
