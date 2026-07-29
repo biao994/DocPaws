@@ -85,3 +85,7 @@ python ../eval/run_rag_eval.py
 ## 检索阈值与拒答
 
 `.env` 可选配置 `RETRIEVAL_MAX_DISTANCE`（FAISS L2，越小越相似；`0` 表示不按距离过滤，仅无结果时拒答）。未过阈值或检索为空时返回：「未检索到足够相关内容，无法基于文档回答。」Agent 流在 `run_agent_stream` 前会做预检（统计/列文档类问题除外）。
+
+## 联网检索（可选）
+
+配置 `.env` 的 `YDC_API_KEY`（You.com Search API）后，对话 Agent 会多出一个 `search_web` 工具：把公开网页作为本地知识库之外的补充来源，用于最新信息或本地文档未覆盖的公开知识，结果带来源 URL 引用（复用现有引用管线）。未配置 Key 时不挂载该工具，行为完全不变。客户端在 `docpaws/infra/websearch/youcom_client.py`（外部 I/O 层），工具在 `docpaws/usecases/chat_agent_tools.py`。任何网络/状态码/解析异常都会降级为空结果，不影响本地检索链路。

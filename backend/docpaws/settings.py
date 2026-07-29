@@ -98,5 +98,10 @@ class Settings:
     # PDF 卡片缩略图（首页 WebP，最长边像素）
     THUMBNAIL_MAX_WIDTH = int(os.getenv("THUMBNAIL_MAX_WIDTH", "400"))
 
+    # You.com 联网检索（可选）：作为本地知识库之外的补充来源。
+    # 团队约定环境变量名固定为 YDC_API_KEY；留空则 search_web 工具不可用。
+    YDC_API_KEY = os.getenv("YDC_API_KEY", "")
+    YDC_WEB_SEARCH_COUNT = int(os.getenv("YDC_WEB_SEARCH_COUNT", "5"))
+
 
 settings = Settings()
