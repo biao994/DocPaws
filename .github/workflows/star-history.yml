@@ -2,9 +2,8 @@ name: Star History
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
-  watch:
-    types: [started]
+    # 每月 1 号 UTC 00:00（北京时间约 08:00）
+    - cron: '0 0 1 * *'
   workflow_dispatch:
 
 permissions:
