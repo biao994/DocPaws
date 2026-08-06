@@ -83,20 +83,23 @@ def api_chat_stream(
     """流式问答 (SSE)"""
     request_id = request.state.request_id
 
+    # 先同步调用 usecase（内部 acquire），失败直接 AppError → HTTP；再开 SSE
+    event_stream = svc.stream_answer(
+        kb_id=req.kb_id,
+        question=req.question,
+        conversation_id=req.conversation_id,
+        request_id=request_id,
+        user_id=current_user.id,
+        document_id=req.document_id,
+        folder_id=req.folder_id,
+        chat_mode=req.chat_mode,
+    )
+
     async def sse_generator():
-        async for payload in svc.stream_answer(
-            kb_id=req.kb_id,
-            question=req.question,
-            conversation_id=req.conversation_id,
-            request_id=request_id,
-            user_id=current_user.id,
-            document_id=req.document_id,
-            folder_id=req.folder_id,
-            chat_mode=req.chat_mode,
-        ):
+        async for payload in event_stream:
             ptype = payload.pop("type", "")
             if ptype:
                 payload["event"] = ptype
             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-    
+
     return StreamingResponse(sse_generator(), media_type="text/event-stream")
