@@ -37,6 +37,7 @@ class ErrorCode:
     INTERNAL_ERROR = "INTERNAL_ERROR"
     RETRIEVAL_FAILED = "RETRIEVAL_FAILED"
     SEARCH_SERVICE_UNAVAILABLE = "SEARCH_SERVICE_UNAVAILABLE"
+    RATE_LIMIT_UNAVAILABLE = "RATE_LIMIT_UNAVAILABLE"
 
     # 200 特殊情况
     NO_HIT = "NO_HIT"
@@ -70,6 +71,7 @@ ERROR_CODE_TO_STATUS = {
     ErrorCode.INTERNAL_ERROR: 500,
     ErrorCode.RETRIEVAL_FAILED: 500,
     ErrorCode.SEARCH_SERVICE_UNAVAILABLE: 503,
+    ErrorCode.RATE_LIMIT_UNAVAILABLE: 503,
     ErrorCode.NO_HIT: 200,
 }
 
@@ -101,6 +103,7 @@ ERROR_CODE_TO_HINT = {
     ErrorCode.INTERNAL_ERROR: "系统繁忙，请稍后重试",
     ErrorCode.RETRIEVAL_FAILED: "对话服务暂时不可用",
     ErrorCode.SEARCH_SERVICE_UNAVAILABLE: "检索服务暂时不可用，请稍后重试",
+    ErrorCode.RATE_LIMIT_UNAVAILABLE: "服务暂不可用，请稍后重试",
     ErrorCode.NO_HIT: "知识库中没有找到相关内容",
 }
 

@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
 from docpaws.settings import settings
 
+logger = logging.getLogger(__name__)
+
 _MINUTE_KEY_TTL_SECONDS = 70
+
+
+class ChatRateLimitStoreUnavailable(Exception):
+    """限流已开启但 Redis 未配置或操作失败（由 usecase 映射为对外错误）。"""
 
 
 def _minute_bucket_key(user_id: str, *, now: datetime | None = None) -> str:
@@ -29,6 +36,12 @@ def _as_str(value: Any) -> str:
     return str(value)
 
 
+def _require_redis(redis_client: Any | None) -> Any:
+    if redis_client is None:
+        raise ChatRateLimitStoreUnavailable("cache redis unavailable")
+    return redis_client
+
+
 def _purge_expired_concurrent_leases(user_id: str, redis_client: Any) -> None:
     """成员集里租约键已过期的项清掉，避免漏释放后名额永久虚占。"""
     members_key = _concurrent_members_key(user_id)
@@ -44,19 +57,26 @@ def try_acquire_chat_minute_quota(user_id: str, redis_client: Any | None) -> boo
     碰模型前按 user_id 扣分钟次数。
 
     Returns:
-        True  — 放行（含开关关闭 / 无 Redis 客户端时本刀直接放行）
+        True  — 放行（开关关闭时直接放行）
         False — 已超分钟配额（调用方翻译为 RATE_LIMITED）
+
+    Raises:
+        ChatRateLimitStoreUnavailable — 开关开启但 Redis 不可用 / 操作失败
     """
     if not settings.CHAT_RATE_LIMIT_ENABLED:
         return True
-    if redis_client is None:
-        return True
-
-    key = _minute_bucket_key(user_id)
-    count = int(redis_client.incr(key))
-    if count == 1:
-        redis_client.expire(key, _MINUTE_KEY_TTL_SECONDS)
-    return count <= settings.CHAT_RATE_LIMIT_PER_MINUTE
+    client = _require_redis(redis_client)
+    try:
+        key = _minute_bucket_key(user_id)
+        count = int(client.incr(key))
+        if count == 1:
+            client.expire(key, _MINUTE_KEY_TTL_SECONDS)
+        return count <= settings.CHAT_RATE_LIMIT_PER_MINUTE
+    except ChatRateLimitStoreUnavailable:
+        raise
+    except Exception as e:
+        logger.warning("chat minute quota redis failed: %s", e)
+        raise ChatRateLimitStoreUnavailable(str(e)) from e
 
 
 def try_acquire_chat_concurrent_slot(
@@ -66,40 +86,50 @@ def try_acquire_chat_concurrent_slot(
     占一个并发问答槽；成功时写入带 TTL 的租约。
 
     Returns:
-        True  — 占槽成功（或开关关闭 / 无 Redis）
-        False — 并发已满（调用方翻译为 CONCURRENT_LIMITED）
+        True  — 占槽成功（开关关闭时直接放行）
+        False — 并发已满
+
+    Raises:
+        ChatRateLimitStoreUnavailable — 开关开启但 Redis 不可用 / 操作失败
     """
     if not settings.CHAT_RATE_LIMIT_ENABLED:
         return True
-    if redis_client is None:
+    client = _require_redis(redis_client)
+    try:
+        _purge_expired_concurrent_leases(user_id, client)
+        members_key = _concurrent_members_key(user_id)
+        if int(client.scard(members_key) or 0) >= settings.CHAT_CONCURRENT_LIMIT:
+            return False
+
+        ttl = settings.CHAT_CONCURRENT_TTL_SECONDS
+        client.sadd(members_key, lease_id)
+        client.set(_concurrent_lease_key(user_id, lease_id), b"1", ex=ttl)
+        client.expire(members_key, ttl)
         return True
-
-    _purge_expired_concurrent_leases(user_id, redis_client)
-    members_key = _concurrent_members_key(user_id)
-    if int(redis_client.scard(members_key) or 0) >= settings.CHAT_CONCURRENT_LIMIT:
-        return False
-
-    ttl = settings.CHAT_CONCURRENT_TTL_SECONDS
-    redis_client.sadd(members_key, lease_id)
-    redis_client.set(_concurrent_lease_key(user_id, lease_id), b"1", ex=ttl)
-    redis_client.expire(members_key, ttl)
-    return True
+    except ChatRateLimitStoreUnavailable:
+        raise
+    except Exception as e:
+        logger.warning("chat concurrent acquire redis failed: %s", e)
+        raise ChatRateLimitStoreUnavailable(str(e)) from e
 
 
 def release_chat_concurrent_slot(
     user_id: str, lease_id: str, redis_client: Any | None
 ) -> None:
-    """释放并发槽；按租约幂等，重复释放不重复减计数。"""
+    """释放并发槽；按租约幂等。Redis 故障时吞掉，避免影响主响应。"""
     if not settings.CHAT_RATE_LIMIT_ENABLED:
         return
     if redis_client is None:
         return
 
-    lease_key = _concurrent_lease_key(user_id, lease_id)
-    deleted = int(redis_client.delete(lease_key) or 0)
-    members_key = _concurrent_members_key(user_id)
-    redis_client.srem(members_key, lease_id)
-    if deleted <= 0:
-        return
-    if int(redis_client.scard(members_key) or 0) <= 0:
-        redis_client.delete(members_key)
+    try:
+        lease_key = _concurrent_lease_key(user_id, lease_id)
+        deleted = int(redis_client.delete(lease_key) or 0)
+        members_key = _concurrent_members_key(user_id)
+        redis_client.srem(members_key, lease_id)
+        if deleted <= 0:
+            return
+        if int(redis_client.scard(members_key) or 0) <= 0:
+            redis_client.delete(members_key)
+    except Exception as e:
+        logger.warning("chat concurrent release redis failed: %s", e)

@@ -37,6 +37,7 @@ from docpaws.infra.repos.conversation_repo import (
     get_recent_history_text,
 )
 from docpaws.infra.rate_limit.chat_rate_limiter import (
+    ChatRateLimitStoreUnavailable,
     release_chat_concurrent_slot,
     try_acquire_chat_concurrent_slot,
     try_acquire_chat_minute_quota,
@@ -996,6 +997,34 @@ async def _stream_answer_events(
         yield payload
 
 
+def _app_error_for_code(error_code: str) -> AppError:
+    return AppError(
+        error_code=error_code,
+        message=ERROR_CODE_TO_HINT[error_code],
+        status_code=get_status_code(error_code),
+        user_hint=ERROR_CODE_TO_HINT[error_code],
+    )
+
+
+def _acquire_chat_gates(user_id: str, request_id: str, cache_redis: redis.Redis | None) -> None:
+    """先并发后次数；Redis 不可用 fail-closed。失败直接抛 AppError。"""
+    try:
+        conc_ok = try_acquire_chat_concurrent_slot(user_id, request_id, cache_redis)
+    except ChatRateLimitStoreUnavailable as e:
+        raise _app_error_for_code(ErrorCode.RATE_LIMIT_UNAVAILABLE) from e
+    if not conc_ok:
+        raise _app_error_for_code(ErrorCode.CONCURRENT_LIMITED)
+
+    try:
+        minute_ok = try_acquire_chat_minute_quota(user_id, cache_redis)
+    except ChatRateLimitStoreUnavailable as e:
+        release_chat_concurrent_slot(user_id, request_id, cache_redis)
+        raise _app_error_for_code(ErrorCode.RATE_LIMIT_UNAVAILABLE) from e
+    if not minute_ok:
+        release_chat_concurrent_slot(user_id, request_id, cache_redis)
+        raise _app_error_for_code(ErrorCode.RATE_LIMITED)
+
+
 class ChatService:
     def __init__(self, session: Session, cache_redis: redis.Redis | None = None):
         self.session = session
@@ -1013,23 +1042,8 @@ class ChatService:
         folder_id: str | None = None,
         chat_mode: ChatMode = "fast",
     ):
-        # 先并发槽、再分钟次数；次数失败归还并发槽。同步 acquire，避免半截 SSE。
-        if not try_acquire_chat_concurrent_slot(user_id, request_id, self.cache_redis):
-            raise AppError(
-                error_code=ErrorCode.CONCURRENT_LIMITED,
-                message=ERROR_CODE_TO_HINT[ErrorCode.CONCURRENT_LIMITED],
-                status_code=get_status_code(ErrorCode.CONCURRENT_LIMITED),
-                user_hint=ERROR_CODE_TO_HINT[ErrorCode.CONCURRENT_LIMITED],
-            )
-        if not try_acquire_chat_minute_quota(user_id, self.cache_redis):
-            release_chat_concurrent_slot(user_id, request_id, self.cache_redis)
-            raise AppError(
-                error_code=ErrorCode.RATE_LIMITED,
-                message=ERROR_CODE_TO_HINT[ErrorCode.RATE_LIMITED],
-                status_code=get_status_code(ErrorCode.RATE_LIMITED),
-                user_hint=ERROR_CODE_TO_HINT[ErrorCode.RATE_LIMITED],
-            )
-
+        # 同步拿闸，避免半截 SSE；失败抛 AppError。
+        _acquire_chat_gates(user_id, request_id, self.cache_redis)
         return _stream_answer_with_concurrent_release(
             self.session,
             kb_id=kb_id,

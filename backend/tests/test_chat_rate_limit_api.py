@@ -241,7 +241,8 @@ def test_chat_concurrent_limit_returns_429_without_calling_llm(
     assert agent_calls["n"] == 0, "并发满时不得调用模型"
 
 
-def _patch_chat_happy_path(monkeypatch, settings, fake_redis, *, agent_impl=None):
+def _patch_chat_happy_path(monkeypatch, settings, fake_redis=None, *, agent_impl=None):
+    """注入假 Redis（或 None=模拟不可用）、检索与 Agent。默认打开限流开关。"""
     import docpaws.infra.cache.redis_client as redis_client
     import docpaws.usecases.chat_agent_runner as agent_runner
     import docpaws.usecases.chat_service as chat_service
@@ -380,3 +381,88 @@ def test_minute_limit_releases_concurrent_slot(
 
     assert try_acquire_chat_concurrent_slot(user.id, "a", fake_redis)
     assert try_acquire_chat_concurrent_slot(user.id, "b", fake_redis)
+
+
+def test_chat_rate_limit_unavailable_when_redis_missing(
+    auth_client, db_session, monkeypatch, tmp_path
+):
+    """开启限流但 Redis 不可用（None）→ 503 RATE_LIMIT_UNAVAILABLE，不打模型。"""
+    from docpaws.settings import settings
+
+    kb_id = _seed_ready_kb(auth_client, db_session, tmp_path)
+    agent_calls = {"n": 0}
+
+    async def _fake_run_agent_stream(**kwargs):
+        agent_calls["n"] += 1
+        yield {"kind": "answer_delta", "content": "ok"}
+
+    _patch_chat_happy_path(monkeypatch, settings, fake_redis=None, agent_impl=_fake_run_agent_stream)
+
+    r = auth_client.post(
+        "/api/v1/chat",
+        json={"kb_id": kb_id, "question": "hi", "conversation_id": None},
+    )
+    assert r.status_code == 503
+    assert r.json()["error_code"] == "RATE_LIMIT_UNAVAILABLE"
+    assert agent_calls["n"] == 0
+
+
+class _BrokenRedis:
+    """模拟 Redis 已注入但操作失败（连不上）。"""
+
+    def smembers(self, key):
+        raise ConnectionError("redis down")
+
+    def incr(self, key):
+        raise ConnectionError("redis down")
+
+
+def test_chat_rate_limit_unavailable_when_redis_errors(
+    auth_client, db_session, monkeypatch, tmp_path
+):
+    """开启限流但 Redis 操作抛错 → 503，不打模型。"""
+    from docpaws.settings import settings
+
+    kb_id = _seed_ready_kb(auth_client, db_session, tmp_path)
+    agent_calls = {"n": 0}
+
+    async def _fake_run_agent_stream(**kwargs):
+        agent_calls["n"] += 1
+        yield {"kind": "answer_delta", "content": "ok"}
+
+    _patch_chat_happy_path(
+        monkeypatch, settings, fake_redis=_BrokenRedis(), agent_impl=_fake_run_agent_stream
+    )
+
+    r = auth_client.post(
+        "/api/v1/chat",
+        json={"kb_id": kb_id, "question": "hi", "conversation_id": None},
+    )
+    assert r.status_code == 503
+    assert r.json()["error_code"] == "RATE_LIMIT_UNAVAILABLE"
+    assert agent_calls["n"] == 0
+
+
+def test_chat_rate_limit_disabled_allows_all(
+    auth_client, db_session, monkeypatch, tmp_path
+):
+    """开关关闭时，即使无 Redis、阈值设得很紧，连问也不限流。"""
+    from docpaws.settings import settings
+
+    kb_id = _seed_ready_kb(auth_client, db_session, tmp_path)
+    agent_calls = {"n": 0}
+
+    async def _fake_run_agent_stream(**kwargs):
+        agent_calls["n"] += 1
+        yield {"kind": "answer_delta", "content": "ok"}
+
+    _patch_chat_happy_path(monkeypatch, settings, fake_redis=None, agent_impl=_fake_run_agent_stream)
+    monkeypatch.setattr(settings, "CHAT_RATE_LIMIT_ENABLED", False)
+    monkeypatch.setattr(settings, "CHAT_RATE_LIMIT_PER_MINUTE", 1)
+    monkeypatch.setattr(settings, "CHAT_CONCURRENT_LIMIT", 1)
+
+    body = {"kb_id": kb_id, "question": "hi", "conversation_id": None}
+    for i in range(5):
+        r = auth_client.post("/api/v1/chat", json=body)
+        assert r.status_code == 200, f"关闭限流后第 {i + 1} 次应放行: {r.text}"
+    assert agent_calls["n"] == 5
