@@ -31,6 +31,7 @@ class ErrorCode:
     DUPLICATE_REQUEST = "DUPLICATE_REQUEST"
     NAME_CONFLICT = "NAME_CONFLICT"
     RATE_LIMITED = "RATE_LIMITED"
+    CONCURRENT_LIMITED = "CONCURRENT_LIMITED"
 
     # 5xx 服务端错误
     INTERNAL_ERROR = "INTERNAL_ERROR"
@@ -65,6 +66,7 @@ ERROR_CODE_TO_STATUS = {
     ErrorCode.DUPLICATE_REQUEST: 409,
     ErrorCode.NAME_CONFLICT: 409,
     ErrorCode.RATE_LIMITED: 429,
+    ErrorCode.CONCURRENT_LIMITED: 429,
     ErrorCode.INTERNAL_ERROR: 500,
     ErrorCode.RETRIEVAL_FAILED: 500,
     ErrorCode.SEARCH_SERVICE_UNAVAILABLE: 503,
@@ -95,6 +97,7 @@ ERROR_CODE_TO_HINT = {
     ErrorCode.DUPLICATE_REQUEST: "请勿重复提交",
     ErrorCode.NAME_CONFLICT: "该位置已存在同名文档，请选择替换或保留全部",
     ErrorCode.RATE_LIMITED: "请求过于频繁，请稍后再试",
+    ErrorCode.CONCURRENT_LIMITED: "请求过于频繁，请稍后再试",
     ErrorCode.INTERNAL_ERROR: "系统繁忙，请稍后重试",
     ErrorCode.RETRIEVAL_FAILED: "对话服务暂时不可用",
     ErrorCode.SEARCH_SERVICE_UNAVAILABLE: "检索服务暂时不可用，请稍后重试",

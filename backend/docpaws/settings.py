@@ -102,6 +102,8 @@ class Settings:
         "yes",
     )
     CHAT_RATE_LIMIT_PER_MINUTE = int(os.getenv("CHAT_RATE_LIMIT_PER_MINUTE", "20"))
+    CHAT_CONCURRENT_LIMIT = int(os.getenv("CHAT_CONCURRENT_LIMIT", "2"))
+    CHAT_CONCURRENT_TTL_SECONDS = int(os.getenv("CHAT_CONCURRENT_TTL_SECONDS", "600"))
 
     # PDF 卡片缩略图（首页 WebP，最长边像素）
     THUMBNAIL_MAX_WIDTH = int(os.getenv("THUMBNAIL_MAX_WIDTH", "400"))
