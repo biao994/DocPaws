@@ -10,7 +10,12 @@ from typing import Literal, TypedDict
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 
-from docpaws.usecases.chat_agent_tools import AgentToolContext, build_agent_system_prompt, build_chat_agent_tools
+from docpaws.usecases.chat_agent_tools import (
+    AgentToolContext,
+    build_agent_system_prompt,
+    build_chat_agent_tools,
+    is_scope_inventory_question,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -175,8 +180,10 @@ async def run_agent_stream(
     agent = create_agent(model=llm, tools=tools, system_prompt=system_prompt)
 
     user_text = question.strip()
-    if history_text:
-        user_text = f"【历史对话】\n{history_text}\n\n【当前问题】\n{user_text}"
+    # 数量/列表题不带历史：模型易照搬旧答且不调工具（比如库里已有新文件仍说 2 个）
+    effective_history = "" if is_scope_inventory_question(question) else history_text
+    if effective_history:
+        user_text = f"【历史对话】\n{effective_history}\n\n【当前问题】\n{user_text}"
 
     inputs = {"messages": [HumanMessage(content=user_text)]}
 
