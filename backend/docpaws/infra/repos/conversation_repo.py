@@ -6,6 +6,8 @@ from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from docpaws.domain.models.chat import Conversation, Message
+from docpaws.domain.services.chat_history import format_history_for_prompt
+from docpaws.settings import settings
 
 
 def _apply_scope_filter(stmt, *, scope_type: str, scope_id: str | None):
@@ -115,9 +117,24 @@ def get_messages_for_conversation(session: Session, conversation_id: str) -> lis
     )
 
 
-def get_recent_history_text(session: Session, conversation_id: str, limit: int = 10) -> str:
+def get_recent_history_text(
+    session: Session,
+    conversation_id: str,
+    limit: int = 10,
+    max_chars: int | None = None,
+    recent_keep: int | None = None,
+    older_line_max: int | None = None,
+) -> str:
+    """拼最近若干条历史：近几轮原样，更早压缩，仍超预算再裁（max_chars≤0 不裁）。"""
     if not conversation_id:
         return ""
+
+    if max_chars is None:
+        max_chars = settings.CHAT_HISTORY_MAX_CHARS
+    if recent_keep is None:
+        recent_keep = settings.CHAT_HISTORY_RECENT_MESSAGES
+    if older_line_max is None:
+        older_line_max = settings.CHAT_HISTORY_OLDER_LINE_CHARS
 
     messages = (
         session.exec(
@@ -136,7 +153,13 @@ def get_recent_history_text(session: Session, conversation_id: str, limit: int =
     for msg in messages:
         role_label = "用户" if msg.role == "user" else "助手"
         history_lines.append(f"{role_label}: {msg.content}")
-    return "\n".join(history_lines)
+
+    return format_history_for_prompt(
+        history_lines,
+        max_chars=max_chars,
+        recent_keep=recent_keep,
+        older_line_max=older_line_max,
+    )
 
 
 def delete_conversation_cascade(session: Session, conversation_id: str) -> bool:
