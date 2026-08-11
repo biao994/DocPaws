@@ -104,10 +104,10 @@ class Settings:
     CHAT_RATE_LIMIT_PER_MINUTE = int(os.getenv("CHAT_RATE_LIMIT_PER_MINUTE", "20"))
     CHAT_CONCURRENT_LIMIT = int(os.getenv("CHAT_CONCURRENT_LIMIT", "2"))
     CHAT_CONCURRENT_TTL_SECONDS = int(os.getenv("CHAT_CONCURRENT_TTL_SECONDS", "600"))
-    # 拼进 prompt 的历史总字符预算；超了：近几轮原样 + 更早压缩，仍超再裁（0=不裁）
-    CHAT_HISTORY_MAX_CHARS = int(os.getenv("CHAT_HISTORY_MAX_CHARS", "8000"))
+    # 拼进 prompt 的历史 token 预算（cl100k 粗估）；超了：近几轮原样 + 更早压缩，仍超再裁（0=不裁）
+    CHAT_HISTORY_MAX_TOKENS = int(os.getenv("CHAT_HISTORY_MAX_TOKENS", "2000"))
     CHAT_HISTORY_RECENT_MESSAGES = int(os.getenv("CHAT_HISTORY_RECENT_MESSAGES", "4"))
-    CHAT_HISTORY_OLDER_LINE_CHARS = int(os.getenv("CHAT_HISTORY_OLDER_LINE_CHARS", "80"))
+    CHAT_HISTORY_OLDER_LINE_TOKENS = int(os.getenv("CHAT_HISTORY_OLDER_LINE_TOKENS", "40"))
 
     # PDF 卡片缩略图（首页 WebP，最长边像素）
     THUMBNAIL_MAX_WIDTH = int(os.getenv("THUMBNAIL_MAX_WIDTH", "400"))

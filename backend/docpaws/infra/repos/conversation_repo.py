@@ -121,20 +121,20 @@ def get_recent_history_text(
     session: Session,
     conversation_id: str,
     limit: int = 10,
-    max_chars: int | None = None,
+    max_tokens: int | None = None,
     recent_keep: int | None = None,
     older_line_max: int | None = None,
 ) -> str:
-    """拼最近若干条历史：近几轮原样，更早压缩，仍超预算再裁（max_chars≤0 不裁）。"""
+    """拼最近若干条历史：近几轮原样，更早按 token 压缩，仍超预算再裁（max_tokens≤0 不裁）。"""
     if not conversation_id:
         return ""
 
-    if max_chars is None:
-        max_chars = settings.CHAT_HISTORY_MAX_CHARS
+    if max_tokens is None:
+        max_tokens = settings.CHAT_HISTORY_MAX_TOKENS
     if recent_keep is None:
         recent_keep = settings.CHAT_HISTORY_RECENT_MESSAGES
     if older_line_max is None:
-        older_line_max = settings.CHAT_HISTORY_OLDER_LINE_CHARS
+        older_line_max = settings.CHAT_HISTORY_OLDER_LINE_TOKENS
 
     messages = (
         session.exec(
@@ -156,7 +156,7 @@ def get_recent_history_text(
 
     return format_history_for_prompt(
         history_lines,
-        max_chars=max_chars,
+        max_tokens=max_tokens,
         recent_keep=recent_keep,
         older_line_max=older_line_max,
     )
