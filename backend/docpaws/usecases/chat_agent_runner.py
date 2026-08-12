@@ -72,6 +72,36 @@ def _tool_running_label(tool_name: str) -> str:
     return _TOOL_LABELS.get(tool_name, f"正在执行 {tool_name}…")
 
 
+def _checkpoint_ns(meta: dict | None) -> str:
+    if not isinstance(meta, dict):
+        return ""
+    return str(meta.get("langgraph_checkpoint_ns") or meta.get("checkpoint_ns") or "")
+
+
+def _is_nested_tool_llm(meta: dict | None) -> bool:
+    """
+    stream_mode=messages 会收到工具内部嵌套 LLM 的 token。
+    并行 query_knowledge_base 时两路 token 交错 → 答案拉链乱码。
+    """
+    ns = _checkpoint_ns(meta)
+    if not ns:
+        return False
+    # LangGraph 工具子图常见命名：...|tools:... 或 tools:tool_name:...
+    lowered = ns.replace("\\", "/").lower()
+    return "|tools:" in lowered or lowered.startswith("tools:") or "/tools:" in lowered
+
+
+def _should_stream_answer_message(msg, meta: dict | None) -> bool:
+    """是否把该 AI chunk 推给用户：只要最终 agent 回复，不要工具内嵌套 LLM。"""
+    if not _is_ai_message(msg):
+        return False
+    if getattr(msg, "tool_calls", None):
+        return False
+    if _is_nested_tool_llm(meta):
+        return False
+    return True
+
+
 def _extract_ai_from_state(state: dict) -> str:
     messages = state.get("messages") or []
     for msg in reversed(messages):
@@ -120,8 +150,8 @@ async def _stream_agent_plan_e(
     emit_tool_running: bool,
 ) -> AsyncGenerator[AgentStreamEvent, None]:
     """
-    updates：工具调用前推 tool_running；工具跑完后才允许流最终答案。
-    messages：只输出最终一轮 assistant content（跳过调工具轮碎片）。
+    updates：工具调用前推 tool_running。
+    messages：只流式输出 agent 最终作答 token；过滤工具内嵌套 LLM（否则并行检索会拉链乱码）。
     """
     answer_streaming_enabled = False
     announced_tools: set[str] = set()
@@ -140,10 +170,13 @@ async def _stream_agent_plan_e(
                     if emit_tool_running:
                         for ev in _emit_tool_running_events(model_update, announced=announced_tools):
                             yield ev
+                    # 仅在「本轮模型不再调工具」时打开流式，避免工具回合的中间碎句
                     if not _model_update_has_tool_calls(model_update):
                         answer_streaming_enabled = True
-            if "tools" in data:
-                answer_streaming_enabled = True
+                    else:
+                        answer_streaming_enabled = False
+            # 注意：不要在 tools 完成时无条件 enable——嵌套 LLM 也在 tools 阶段跑完，
+            # 过早 enable 会把并行 query 的两路 token 交错推进用户答案。
             continue
 
         if mode != "messages" or not answer_streaming_enabled:
@@ -151,10 +184,8 @@ async def _stream_agent_plan_e(
 
         if not isinstance(data, tuple) or len(data) != 2:
             continue
-        msg, _meta = data
-        if not _is_ai_message(msg):
-            continue
-        if getattr(msg, "tool_calls", None):
+        msg, meta = data
+        if not _should_stream_answer_message(msg, meta if isinstance(meta, dict) else None):
             continue
 
         # messages 模式下每个 chunk 是增量 token，不是累积全文
@@ -180,7 +211,7 @@ async def run_agent_stream(
     agent = create_agent(model=llm, tools=tools, system_prompt=system_prompt)
 
     user_text = question.strip()
-    # 数量/列表题不带历史：模型易照搬旧答且不调工具（比如库里已有新文件仍说 2 个）
+    # 数量/列表题不带历史：模型易照搬旧答且不调工具（库里已有新文件仍说 2 个）
     effective_history = "" if is_scope_inventory_question(question) else history_text
     if effective_history:
         user_text = f"【历史对话】\n{effective_history}\n\n【当前问题】\n{user_text}"

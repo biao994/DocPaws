@@ -40,3 +40,7 @@ frontend/playwright/.cache/
 # Legacy / local index paths
 faiss_index/
 backend/faiss_index/
+
+# Local scratch / repro scripts (not for CI)
+.scratch/
+**/.scratch/

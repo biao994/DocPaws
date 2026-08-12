@@ -1,6 +1,7 @@
 ﻿"""Agent 工具：范围内文档统计与列表"""
 from docpaws.domain.models.document import Document
 from docpaws.domain.models.folder import KbFolder
+from docpaws.usecases.chat_agent_tools import AgentToolContext, build_agent_system_prompt
 from docpaws.usecases.chat_scope import (
     count_documents_in_scope,
     list_document_titles_in_scope,
@@ -37,3 +38,22 @@ def test_count_and_list_documents_in_folder_scope(db_session):
         db_session, kb_id=kb_id, scope_type=SCOPE_KB, scope_id=None
     )
     assert kb_total == 3
+
+
+def test_agent_system_prompt_warns_against_section_as_document(db_session):
+    ctx = AgentToolContext(
+        session=db_session,
+        kb_id="kb-prompt",
+        scope_type=SCOPE_KB,
+        scope_id=None,
+        vectorstore=None,
+        metadata_filter=None,
+        search_k=5,
+        cache_redis=None,
+        artifact_id="x",
+        scope_token="kb:",
+        model_name="dummy",
+    )
+    prompt = build_agent_system_prompt(ctx)
+    assert "章节标题不是独立文档" in prompt
+    assert "文档一/文档二/文档三" in prompt
