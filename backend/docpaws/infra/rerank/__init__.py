@@ -25,7 +25,7 @@ def create_reranker() -> Reranker | None:
         return SiliconFlowReranker(
             api_key=settings.RERANK_API_KEY or "",
             base_url=settings.RERANK_BASE_URL or "https://api.siliconflow.cn/v1",
-            model=settings.RERANK_MODEL or "BAAI/bge-reranker-v2-m3",
+            model=settings.RERANK_MODEL or "Qwen/Qwen3-Reranker-8B",
             timeout_seconds=float(settings.RERANK_TIMEOUT_SECONDS),
         )
     raise ValueError(f"unsupported RERANK_PROVIDER: {provider}")

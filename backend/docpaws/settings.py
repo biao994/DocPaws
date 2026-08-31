@@ -97,7 +97,7 @@ class Settings:
     RERANK_API_KEY = os.getenv("RERANK_API_KEY", "") or os.getenv("EMBEDDING_API_KEY", "")
     RERANK_BASE_URL = os.getenv("RERANK_BASE_URL", "https://api.siliconflow.cn/v1")
     # 必须是 rerank 模型 id，勿填 embedding 模型名
-    RERANK_MODEL = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
+    RERANK_MODEL = os.getenv("RERANK_MODEL", "Qwen/Qwen3-Reranker-8B")
     RERANK_RETRIEVE_K = int(os.getenv("RERANK_RETRIEVE_K", "20"))
     RERANK_TIMEOUT_SECONDS = float(os.getenv("RERANK_TIMEOUT_SECONDS", "10"))
     # fake provider：含该子串的候选顶前（单测/排序断言）

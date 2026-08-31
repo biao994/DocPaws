@@ -17,12 +17,12 @@ class SiliconFlowReranker:
         *,
         api_key: str,
         base_url: str = "https://api.siliconflow.cn/v1",
-        model: str = "BAAI/bge-reranker-v2-m3",
+        model: str = "Qwen/Qwen3-Reranker-8B",
         timeout_seconds: float = 10,
     ):
         self.api_key = (api_key or "").strip()
         self.base_url = (base_url or "https://api.siliconflow.cn/v1").rstrip("/") + "/"
-        self.model = (model or "BAAI/bge-reranker-v2-m3").strip()
+        self.model = (model or "Qwen/Qwen3-Reranker-8B").strip()
         self.timeout_seconds = float(timeout_seconds or 10)
 
     def rerank(self, query: str, documents: Sequence[str]) -> list[RerankHit]:
