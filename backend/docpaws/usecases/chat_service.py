@@ -31,6 +31,7 @@ from docpaws.domain.models.chat import Conversation, Message
 from docpaws.domain.models.index import Answer, RetrievalRun
 from docpaws.infra.repos.index_repo import get_active_index_artifact
 from docpaws.settings import settings
+from docpaws.infra.rerank import create_reranker
 from docpaws.infra.repos.conversation_repo import (
     get_conversation_by_id,
     create_conversation,
@@ -120,6 +121,16 @@ def _normalize_question(q: str) -> str:
     return _WS_RE.sub(" ", (q or "").strip())
 
 
+def _rerank_cache_token() -> str | None:
+    """开启时返回 provider/model/retrieve_k 片段；关闭返回 None（key 不插入 rerank 段，与现网兼容）。"""
+    if not settings.RERANK_ENABLED:
+        return None
+    provider = (settings.RERANK_PROVIDER or "").strip().lower() or "siliconflow"
+    model = (settings.RERANK_MODEL or "").strip() or "-"
+    retrieve_k = int(settings.RERANK_RETRIEVE_K)
+    return f"on:{provider}:{model}:{retrieve_k}"
+
+
 def _retrieval_cache_key(
     *,
     kb_id: str,
@@ -130,7 +141,48 @@ def _retrieval_cache_key(
 ) -> str:
     digest = hashlib.sha256(question_norm.encode("utf-8")).hexdigest()[:24]
     prefix = (getattr(settings, "CACHE_REDIS_PREFIX", "docpaws:retrieve:") or "docpaws:retrieve:").strip()
-    return f"{prefix}{kb_id}:{artifact_id}:{search_k}:{scope_token}:{digest}"
+    rerank_tok = _rerank_cache_token()
+    if rerank_tok is None:
+        return f"{prefix}{kb_id}:{artifact_id}:{search_k}:{scope_token}:{digest}"
+    return f"{prefix}{kb_id}:{artifact_id}:{search_k}:{rerank_tok}:{scope_token}:{digest}"
+
+
+def _apply_rerank_or_degrade(question: str, filtered: list[tuple], *, search_k: int) -> list:
+    """L2 后非空候选：调用 rerank；失败则降级 FAISS 序，始终截断为 search_k。"""
+    reranker = create_reranker()
+    if reranker is None:
+        return docs_from_scored_pairs(filtered, limit=search_k)
+
+    texts = [str(getattr(doc, "page_content", "") or "") for doc, _ in filtered]
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            hits = reranker.rerank(question, texts)
+            seen: set[int] = set()
+            reordered: list[tuple] = []
+            for hit in hits:
+                idx = int(hit.index)
+                if idx in seen or idx < 0 or idx >= len(filtered):
+                    continue
+                seen.add(idx)
+                reordered.append(filtered[idx])
+            for i, pair in enumerate(filtered):
+                if i not in seen:
+                    reordered.append(pair)
+            return docs_from_scored_pairs(reordered, limit=search_k)
+        except Exception as e:
+            last_error = e
+            logger.warning(
+                "rerank failed (attempt %s/2), will %s: %s",
+                attempt + 1,
+                "retry" if attempt == 0 else "degrade to FAISS order",
+                e,
+            )
+            if attempt == 0:
+                time.sleep(0.2)
+    if last_error is not None:
+        logger.warning("rerank degraded to FAISS order: %s", last_error)
+    return docs_from_scored_pairs(filtered, limit=search_k)
 
 
 def _serialize_docs_for_cache(docs: list) -> str:
@@ -226,28 +278,33 @@ def retrieve_docs_with_retry(
     metadata_filter=None,
     max_retries: int = 2,
 ) -> list:
-    """向量检索（带分数 + 可选距离阈值）；metadata_filter 为 None 时检索整库。"""
-    fetch_k = _resolve_retrieval_fetch_k(vectorstore, search_k, metadata_filter)
+    """向量检索漏斗：FAISS → L2 →（可选）Rerank → 截 search_k；metadata_filter 为 None 时检索整库。"""
+    retrieve_k = search_k
+    if settings.RERANK_ENABLED:
+        retrieve_k = max(int(settings.RERANK_RETRIEVE_K), search_k)
+    fetch_k = _resolve_retrieval_fetch_k(vectorstore, retrieve_k, metadata_filter)
     last_error = None
     for attempt in range(max_retries + 1):
         try:
             if hasattr(vectorstore, "similarity_search_with_score"):
                 pairs = vectorstore.similarity_search_with_score(
                     question,
-                    k=search_k,
+                    k=retrieve_k,
                     filter=metadata_filter,
                     fetch_k=fetch_k,
                 )
             else:
                 raw = vectorstore.similarity_search(
                     question,
-                    k=search_k,
+                    k=retrieve_k,
                     filter=metadata_filter,
                     fetch_k=fetch_k,
                 )
                 pairs = [(d, 0.0) for d in raw]
             filtered = _filter_scored_pairs(pairs)
-            return docs_from_scored_pairs(filtered, limit=search_k)
+            if not filtered:
+                return []
+            return _apply_rerank_or_degrade(question, filtered, search_k=search_k)
         except Exception as e:
             last_error = e
             logger.warning(

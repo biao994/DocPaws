@@ -6,7 +6,7 @@ DocPaws 后端有两处配置入口，职责不同，**不要混用或二次兜�
 
 | 文件 | 职责 | 典型内容 | 谁读 |
 |------|------|----------|------|
-| `docpaws/settings.py` | **部署 / 运行时**：环境变量 → `Settings` 单例 | DB、S3、Celery、Redis 缓存、索引目录、`RETRIEVAL_MAX_DISTANCE`、CORS、Session | `app.py`、`infra/*`、部分 usecases |
+| `docpaws/settings.py` | **部署 / 运行时**：环境变量 → `Settings` 单例 | DB、S3、Celery、Redis 缓存、索引目录、`RETRIEVAL_MAX_DISTANCE`、`RERANK_*`、CORS、Session | `app.py`、`infra/*`、部分 usecases |
 | `docpaws/config.py` | **模型 / 检索默认项**：`get_default_config()` 字典 | LLM/Embedding 模型名、API Key、chunk 大小、`search_k`、超时与重试 | `chat_service`、`infra/embedding`、`infra/vectorstore`、索引 worker |
 
 ## 规则
@@ -28,6 +28,10 @@ DocPaws 后端有两处配置入口，职责不同，**不要混用或二次兜�
 | `CELERY_BROKER_URL` | 异步索引任务 |
 | `CACHE_REDIS_URL` | 检索结果短 TTL 缓存 |
 | `RETRIEVAL_MAX_DISTANCE` | FAISS L2 上限；`<=0` 仅空结果拒答 |
+| `RERANK_ENABLED` | 检索重排总开关（默认 `false`） |
+| `RERANK_PROVIDER` | `siliconflow` / `fake` / `noop` |
+| `RERANK_RETRIEVE_K` | 开启重排时向量候选池大小（默认 20） |
+| `RERANK_MODEL` / `RERANK_API_KEY` / `RERANK_BASE_URL` | 云端 rerank（模型须为 rerank，勿复用 embedding 名） |
 | `DEEPSEEK_API_KEY` / `OPENAI_API_KEY` | 也影响 `config` 中的 LLM Key 解析 |
 
 ### config（经 env 注入）

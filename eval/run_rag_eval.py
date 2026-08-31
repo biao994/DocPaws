@@ -320,32 +320,38 @@ def _eval_retrieve_docs_and_top1_l2(
     search_k: int,
     metadata_filter,
 ) -> tuple[list, float | None]:
-    """与线上一致的检索；返回 (过滤后 docs, 过滤前 top1 L2，越小越相似)。"""
+    """与线上一致的检索漏斗；返回 (最终 docs, 过滤前 top1 L2，越小越相似)。"""
+    from docpaws.settings import settings
     from docpaws.usecases.chat_service import (
+        _apply_rerank_or_degrade,
         _filter_scored_pairs,
         _resolve_retrieval_fetch_k,
-        docs_from_scored_pairs,
     )
 
-    fetch_k = _resolve_retrieval_fetch_k(vectorstore, search_k, metadata_filter)
+    retrieve_k = search_k
+    if settings.RERANK_ENABLED:
+        retrieve_k = max(int(settings.RERANK_RETRIEVE_K), search_k)
+    fetch_k = _resolve_retrieval_fetch_k(vectorstore, retrieve_k, metadata_filter)
     if hasattr(vectorstore, "similarity_search_with_score"):
         pairs = vectorstore.similarity_search_with_score(
             question,
-            k=search_k,
+            k=retrieve_k,
             filter=metadata_filter,
             fetch_k=fetch_k,
         )
     else:
         raw = vectorstore.similarity_search(
             question,
-            k=search_k,
+            k=retrieve_k,
             filter=metadata_filter,
             fetch_k=fetch_k,
         )
         pairs = [(d, 0.0) for d in raw]
     top1 = min((float(s) for _, s in pairs), default=None) if pairs else None
     filtered = _filter_scored_pairs(pairs)
-    docs = docs_from_scored_pairs(filtered, limit=search_k)
+    if not filtered:
+        return [], top1
+    docs = _apply_rerank_or_degrade(question, filtered, search_k=search_k)
     return docs, top1
 
 

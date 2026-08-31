@@ -9,6 +9,8 @@
 | `golden_20.jsonl` | 20 道题（库内 / 库外拒答 / 元数据） |
 | `fixtures/*.txt` | 评估用原文（生成 PDF 索引） |
 | `run_rag_eval.py` | 主脚本 |
+| `dump_topk_rank.py` | FAISS 排序探针（无 LLM / 不走 rerank） |
+| `probe_rerank_pool.py` | 候选池 vs rerank 后 final_k（换模型用） |
 | `lib/scoring.py` | 打分逻辑 |
 | `results/eval_*.csv` | 运行输出（默认 gitignore） |
 | `.eval_state.json` | 本地 kb_id（gitignore） |
@@ -66,3 +68,40 @@ python ../eval/run_rag_eval.py --http --base-url http://127.0.0.1:8001
 ## 迭代对比
 
 改代码后重新 `python ../eval/run_rag_eval.py`，对比两次 `results/eval_*.csv` 的 `pass` 列与通过率。
+
+## 检索重排（Rerank）
+
+默认 **关闭**（`RERANK_ENABLED=false`），CI / 日常 golden **不打外网 rerank**。
+
+### CI 可跑的排序断言（fake）
+
+后端单测 `tests/test_rerank_rank_eval.py` 用 **fake** provider：对 A-class（q07/q13/q15/q16/q20）把含 `must_contain` 的 gold 片段顶进 `search_k`；关闭重排时保持 FAISS 序、gold 不进 final_k。无需 API Key。
+
+```bash
+cd backend
+python -m pytest tests/test_rerank_*.py -q
+```
+
+### 可选：真 SiliconFlow 抽查（非门禁）
+
+```env
+RERANK_ENABLED=true
+RERANK_PROVIDER=siliconflow
+RERANK_API_KEY=sk-...
+# 必须是文本 rerank 模型，勿填 embedding / VL-Reranker
+RERANK_MODEL=Qwen/Qwen3-Reranker-8B
+RERANK_RETRIEVE_K=20
+```
+
+然后跑评估，对比 A-class 题的 `must_contain` 是否变好或持平：
+
+```bash
+cd backend
+python ../eval/run_rag_eval.py
+# FAISS 基线（不走 rerank）：gold 排第几、进不进 top-5
+python ../eval/dump_topk_rank.py
+# 开着重排：候选池有无 gold → rerank 后是否进 final_k（换模型时先跑这个）
+python ../eval/probe_rerank_pool.py
+```
+
+失败时漏斗会降级为 FAISS 序，不会整句炸掉。

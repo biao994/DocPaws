@@ -91,6 +91,18 @@ class Settings:
     # FAISS L2 距离上限（越小越相似）；<=0 表示不按距离过滤（仅空结果拒答）
     RETRIEVAL_MAX_DISTANCE = float(os.getenv("RETRIEVAL_MAX_DISTANCE", "1.26"))
 
+    # 检索重排（默认关；CI 用 fake，生产可开 siliconflow）
+    RERANK_ENABLED = os.getenv("RERANK_ENABLED", "false").lower() in ("1", "true", "yes")
+    RERANK_PROVIDER = os.getenv("RERANK_PROVIDER", "siliconflow").strip() or "siliconflow"
+    RERANK_API_KEY = os.getenv("RERANK_API_KEY", "") or os.getenv("EMBEDDING_API_KEY", "")
+    RERANK_BASE_URL = os.getenv("RERANK_BASE_URL", "https://api.siliconflow.cn/v1")
+    # 必须是 rerank 模型 id，勿填 embedding 模型名
+    RERANK_MODEL = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
+    RERANK_RETRIEVE_K = int(os.getenv("RERANK_RETRIEVE_K", "20"))
+    RERANK_TIMEOUT_SECONDS = float(os.getenv("RERANK_TIMEOUT_SECONDS", "10"))
+    # fake provider：含该子串的候选顶前（单测/排序断言）
+    RERANK_FAKE_BOOST_SUBSTRING = os.getenv("RERANK_FAKE_BOOST_SUBSTRING", "")
+
     CACHE_REDIS_MAX_CONNECTIONS = int(os.getenv("CACHE_REDIS_MAX_CONNECTIONS", "50"))
     CACHE_REDIS_CONNECT_TIMEOUT_SECONDS = float(os.getenv("CACHE_REDIS_CONNECT_TIMEOUT_SECONDS", "2"))
     CACHE_REDIS_SOCKET_TIMEOUT_SECONDS = float(os.getenv("CACHE_REDIS_SOCKET_TIMEOUT_SECONDS", "2"))
