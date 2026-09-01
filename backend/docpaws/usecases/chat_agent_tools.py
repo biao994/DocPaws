@@ -3,6 +3,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
@@ -156,7 +157,7 @@ def build_chat_agent_tools(ctx: AgentToolContext) -> list:
         return f"已找到文档：{title}"
 
     @tool
-    def query_knowledge_base(question: str) -> str:
+    async def query_knowledge_base(question: str) -> str:
         """基于当前范围内已索引的文档内容回答问题。适合需要理解、解释、总结的问题。"""
         from docpaws.usecases.chat_service import (
             INSUFFICIENT_RETRIEVAL_MSG,
@@ -178,7 +179,9 @@ def build_chat_agent_tools(ctx: AgentToolContext) -> list:
             base_filter=ctx.metadata_filter,
             text=q,
         )
-        docs = retrieve_scoped_docs_cached(
+        # 同步检索（含 httpx rerank / time.sleep）离场到线程，避免堵事件循环
+        docs = await asyncio.to_thread(
+            retrieve_scoped_docs_cached,
             kb_id=ctx.kb_id,
             question=q,
             search_k=ctx.search_k,
@@ -199,7 +202,9 @@ def build_chat_agent_tools(ctx: AgentToolContext) -> list:
         llm = create_chat_llm(model_name=ctx.model_name, chat_mode=ctx.chat_mode)
         try:
             # 禁止嵌套 LLM 的 token 冒泡到 agent astream(messages)，否则并行工具会拉链乱码
-            resp = llm.invoke(prompt, config={"callbacks": []})
+            resp = await asyncio.to_thread(
+                llm.invoke, prompt, config={"callbacks": []}
+            )
             text = getattr(resp, "content", None) or str(resp)
             text = text.strip() or "未能生成回答。"
             if target_title:
@@ -210,7 +215,7 @@ def build_chat_agent_tools(ctx: AgentToolContext) -> list:
             return "生成回答时出错，请稍后重试。"
 
     @tool
-    def search_documents(keyword: str) -> str:
+    async def search_documents(keyword: str) -> str:
         """在当前范围内按关键词检索文档原文片段（向量相似度）。适合「搜索/查找/找某个词」。"""
         from docpaws.usecases.chat_service import retrieve_docs_with_retry
 
@@ -227,7 +232,8 @@ def build_chat_agent_tools(ctx: AgentToolContext) -> list:
             text=kw,
         )
         try:
-            docs = retrieve_docs_with_retry(
+            docs = await asyncio.to_thread(
+                retrieve_docs_with_retry,
                 ctx.vectorstore,
                 kw,
                 search_k=ctx.search_k,

@@ -7,6 +7,7 @@
 3. create_agent 按问题选用工具（检索 / 统计 / 列表 / 关键词搜索）
 4. 流式输出最终回答并保存引用
 """
+import asyncio
 import json
 import hashlib
 import logging
@@ -1024,7 +1025,9 @@ async def _stream_answer_events(
             base_filter=metadata_filter,
             text=question,
         )
-        preflight_docs = retrieve_scoped_docs_cached(
+        # 同步检索（FAISS / Redis / httpx rerank / time.sleep）丢到线程，避免堵事件循环
+        preflight_docs = await asyncio.to_thread(
+            retrieve_scoped_docs_cached,
             kb_id=kb_id,
             question=question,
             search_k=search_k,
