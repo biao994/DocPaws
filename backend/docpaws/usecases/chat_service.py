@@ -1,4 +1,4 @@
-﻿"""
+"""
 对话问答业务编排（Agent + 工具）
 
 流程：
@@ -118,7 +118,8 @@ _META_PREFLIGHT_SKIP_RE = re.compile(
 )
 
 
-def _normalize_question(q: str) -> str:
+def normalize_question(q: str) -> str:
+    """折叠空白，供预检复用与检索缓存键对齐。"""
     return _WS_RE.sub(" ", (q or "").strip())
 
 
@@ -255,7 +256,7 @@ def hit_chunks_from_docs(docs: list) -> list[dict]:
 
 def should_skip_retrieval_preflight(question: str) -> bool:
     """统计/列文档类问题不走检索预检，避免挡住 count/list 工具。"""
-    q = _normalize_question(question)
+    q = normalize_question(question)
     return bool(_META_PREFLIGHT_SKIP_RE.search(q))
 
 
@@ -331,7 +332,7 @@ def retrieve_scoped_docs_cached(
     scope_token: str,
 ) -> list:
     """带 Redis 缓存的范围内向量检索（供 query_knowledge_base 工具调用）。"""
-    question_norm = _normalize_question(question)
+    question_norm = normalize_question(question)
     cache_key = ""
     docs = None
     if cache_redis is not None:
@@ -793,6 +794,7 @@ async def _stream_agent_and_persist(
     chat_mode: ChatMode,
     model_name: str,
     request_id: str,
+    preflight_docs: list | None = None,
 ) -> AsyncGenerator[dict, None]:
     """
     正式出答闭环：Agent 流式生成 → 检索审计 → 落库 → finished 事件。
@@ -813,6 +815,8 @@ async def _stream_agent_and_persist(
         scope_token=scope_token,
         model_name=model_name,
         chat_mode=chat_mode,
+        preflight_question=normalize_question(question) if preflight_docs else "",
+        preflight_docs=list(preflight_docs or []),
     )
 
     llm = create_chat_llm(model_name=model_name, chat_mode=chat_mode)
@@ -1015,6 +1019,8 @@ async def _stream_answer_events(
     )
 
     # --- 检索预检：内容题无命中则拒答；元问题（统计/列表）跳过 ---
+    # 命中后把 docs 交给 Agent 工具复用，避免内容题二次检索
+    preflight_docs: list = []
     if not should_skip_retrieval_preflight(question):
         # 问题点名某文档标题时，在 scope 内再收窄到单文件
         pre_meta, pre_named_doc = retrieval_filter_for_question(
@@ -1067,6 +1073,7 @@ async def _stream_answer_events(
         chat_mode=chat_mode,
         model_name=model_name,
         request_id=request_id,
+        preflight_docs=preflight_docs,
     ):
         yield payload
 
