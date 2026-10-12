@@ -6,6 +6,7 @@ from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from docpaws.domain.models.chat import Conversation, Message
+from docpaws.domain.models.index import Answer, RetrievalRun
 from docpaws.domain.services.chat_history import format_history_for_prompt
 from docpaws.settings import settings
 
@@ -170,4 +171,85 @@ def delete_conversation_cascade(session: Session, conversation_id: str) -> bool:
         session.delete(msg)
     session.delete(c)
     return True
+
+
+def get_answer_by_id(session: Session, answer_id: str) -> Answer | None:
+    return session.get(Answer, answer_id)
+
+
+def create_message(
+    session: Session,
+    *,
+    conversation_id: str,
+    role: str,
+    content: str,
+    answer_id: str | None = None,
+    commit: bool = True,
+) -> Message:
+    msg = Message(
+        conversation_id=conversation_id,
+        role=role,
+        content=content,
+        answer_id=answer_id,
+    )
+    session.add(msg)
+    if commit:
+        session.commit()
+        session.refresh(msg)
+    else:
+        session.flush()
+    return msg
+
+
+def create_answer(
+    session: Session,
+    *,
+    conversation_id: str,
+    question_message_id: str,
+    answer_text: str,
+    model_name: str,
+    citations: list | None = None,
+    version: int = 1,
+    is_current: bool = True,
+    commit: bool = True,
+) -> Answer:
+    answer = Answer(
+        conversation_id=conversation_id,
+        question_message_id=question_message_id,
+        version=version,
+        is_current=is_current,
+        answer_text=answer_text,
+        citations=citations if citations is not None else [],
+        model_name=model_name,
+    )
+    session.add(answer)
+    if commit:
+        session.commit()
+        session.refresh(answer)
+    else:
+        session.flush()
+    return answer
+
+
+def add_retrieval_run(
+    session: Session,
+    *,
+    kb_id: str,
+    conversation_id: str,
+    question_message_id: str,
+    query_text: str,
+    top_k: int,
+    hit_chunks,
+) -> RetrievalRun:
+    """仅 add，不 commit（与 Answer 同事务落库）。"""
+    run = RetrievalRun(
+        kb_id=kb_id,
+        conversation_id=conversation_id,
+        question_message_id=question_message_id,
+        query_text=query_text,
+        top_k=top_k,
+        hit_chunks=hit_chunks,
+    )
+    session.add(run)
+    return run
 

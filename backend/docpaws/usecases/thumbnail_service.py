@@ -8,9 +8,12 @@ import os
 
 from sqlmodel import Session
 
-from docpaws.domain.models.document import Document
 from docpaws.infra.parsers.pdf_thumbnail import render_first_page_webp
-from docpaws.infra.repos.document_repo import resolve_document_file
+from docpaws.infra.repos.document_repo import (
+    get_document_by_id,
+    resolve_document_file,
+    set_document_thumbnail_key,
+)
 from docpaws.infra.storage.s3_minio import delete_object, download_to_temp, upload_bytes
 from docpaws.settings import settings
 
@@ -30,7 +33,7 @@ def generate_document_thumbnail(session: Session, document_id: str, *, pdf_path:
     pdf_path 可选：索引任务已下载 PDF 时可复用本地路径，避免重复下载。
     失败时记录日志并返回 None，不抛出异常（索引主流程不应被缩略图阻断）。
     """
-    doc = session.get(Document, document_id)
+    doc = get_document_by_id(session, document_id)
     if not doc:
         return None
 
@@ -47,8 +50,7 @@ def generate_document_thumbnail(session: Session, document_id: str, *, pdf_path:
         upload_bytes(webp_bytes, key, content_type="image/webp")
 
         old_key = (doc.thumbnail_key or "").strip()
-        doc.thumbnail_key = key
-        session.add(doc)
+        set_document_thumbnail_key(session, doc, key)
         session.commit()
 
         if old_key and old_key != key:

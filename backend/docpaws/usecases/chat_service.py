@@ -27,9 +27,8 @@ from docpaws.infra.vectorstore.faiss_manager import VectorStoreManager
 from docpaws.usecases.chat_llm import ChatMode, create_chat_llm, resolve_chat_model
 from docpaws.usecases.chat_thinking import stream_thinking_prelude
 from docpaws.usecases.chat_scope import count_documents_in_scope, scope_prompt_label
-from docpaws.domain.models.document import Chunk, Document
-from docpaws.domain.models.chat import Conversation, Message
-from docpaws.domain.models.index import Answer, RetrievalRun
+from docpaws.domain.models.chat import Message
+from docpaws.domain.models.index import Answer
 from docpaws.infra.repos.index_repo import get_active_index_artifact
 from docpaws.settings import settings
 from docpaws.infra.rerank import create_reranker
@@ -37,6 +36,13 @@ from docpaws.infra.repos.conversation_repo import (
     get_conversation_by_id,
     create_conversation,
     get_recent_history_text,
+    create_message,
+    create_answer,
+    add_retrieval_run,
+)
+from docpaws.usecases.citations import (  # noqa: F401 — 兼容 tests 旧 import 路径
+    get_citations_from_docs,
+    hydrate_citations_from_stored,
 )
 from docpaws.infra.rate_limit.chat_rate_limiter import (
     ChatRateLimitStoreUnavailable,
@@ -60,27 +66,21 @@ def _persist_assistant_reply(
     model_name: str,
 ) -> tuple[Answer, Message]:
     """保存助手回复（含失败提示），便于会话历史回放。"""
-    answer = Answer(
+    answer = create_answer(
+        session,
         conversation_id=conversation_id,
         question_message_id=question_message_id,
-        version=1,
-        is_current=True,
         answer_text=answer_text,
-        citations=[],
         model_name=model_name,
+        citations=[],
     )
-    session.add(answer)
-    session.commit()
-    session.refresh(answer)
-    assistant_msg = Message(
+    assistant_msg = create_message(
+        session,
         conversation_id=conversation_id,
         role="assistant",
         content=answer_text,
         answer_id=answer.id,
     )
-    session.add(assistant_msg)
-    session.commit()
-    session.refresh(assistant_msg)
     return answer, assistant_msg
 
 
@@ -373,87 +373,6 @@ def retrieve_scoped_docs_cached(
     return docs or []
 
 
-def get_citations_from_docs(docs, session: Session) -> list[dict]:
-    """从检索结果构建引用信息"""
-    citations = []
-    for doc in docs:
-        chunk_id = doc.metadata.get("chunk_id")
-        document_id = doc.metadata.get("document_id")
-        chunk = session.get(Chunk, chunk_id) if chunk_id else None
-
-        source_name = doc.metadata.get("source", "")
-        if document_id and not source_name:
-            db_doc = session.get(Document, document_id)
-            if db_doc:
-                source_name = db_doc.title
-
-        snippet = doc.page_content[:200] + ("..." if len(doc.page_content) > 200 else "")
-
-        citations.append(
-            {
-                "chunk_id": chunk_id,
-                "document_id": document_id,
-                "source": source_name,
-                "page_no": chunk.page_no if chunk else doc.metadata.get("page"),
-                "snippet": snippet,
-            }
-        )
-    return citations
-
-
-def hydrate_citations_from_stored(session: Session, stored) -> list[dict]:
-    """从 Answer.citations 还原完整引用（兼容仅存 chunk_id 的旧数据）。"""
-    if not stored:
-        return []
-    if isinstance(stored, str):
-        try:
-            stored = json.loads(stored)
-        except (json.JSONDecodeError, TypeError):
-            return []
-    if not isinstance(stored, list):
-        return []
-
-    out: list[dict] = []
-    for item in stored:
-        if not isinstance(item, dict):
-            continue
-        chunk_id = item.get("chunk_id")
-        if not chunk_id:
-            continue
-        if item.get("snippet"):
-            out.append(
-                {
-                    "chunk_id": chunk_id,
-                    "document_id": item.get("document_id"),
-                    "page_no": item.get("page_no"),
-                    "snippet": item["snippet"],
-                    "source": item.get("source"),
-                }
-            )
-            continue
-        chunk = session.get(Chunk, chunk_id)
-        if not chunk:
-            continue
-        document_id = chunk.document_id
-        source_name = (item.get("source") or "").strip()
-        if document_id and not source_name:
-            db_doc = session.get(Document, document_id)
-            if db_doc:
-                source_name = (db_doc.title or "").strip()
-        content = chunk.content or ""
-        snippet = content[:200] + ("..." if len(content) > 200 else "")
-        out.append(
-            {
-                "chunk_id": chunk_id,
-                "document_id": document_id,
-                "page_no": chunk.page_no,
-                "snippet": snippet,
-                "source": source_name or None,
-            }
-        )
-    return out
-
-
 def format_docs_for_prompt(docs: list) -> str:
     """把检索片段拼进 prompt：每段标注 [序号 - 文件名]，避免模型把同文件章节当成多份文档。"""
     parts: list[str] = []
@@ -668,10 +587,7 @@ def _prepare_conversation_and_scope(
         scope_type, scope_id = new_scope_type, new_scope_id
 
     # 先落用户消息，后续检索/生成失败也能在历史里看到提问
-    user_msg = Message(conversation_id=cid, role="user", content=question)
-    session.add(user_msg)
-    session.commit()
-    session.refresh(user_msg)
+    user_msg = create_message(session, conversation_id=cid, role="user", content=question)
     return cid, user_msg, scope_type, scope_id
 
 
@@ -869,9 +785,10 @@ async def _stream_agent_and_persist(
     answer_text = "".join(full)
     citations = tool_ctx.last_citations
 
-    # 审计：记录本次 Agent 实际命中的 chunk（评测/追溯用）
+    # 审计：记录本次 Agent 实际命中的 chunk（评测/追溯用）；与 Answer 同事务
     if tool_ctx.last_hit_chunks:
-        retrieval_run = RetrievalRun(
+        add_retrieval_run(
+            session,
             kb_id=kb_id,
             conversation_id=cid,
             question_message_id=user_msg.id,
@@ -879,15 +796,13 @@ async def _stream_agent_and_persist(
             top_k=search_k,
             hit_chunks=tool_ctx.last_hit_chunks,
         )
-        session.add(retrieval_run)
 
-    # Answer + 助手 Message 同 session 落库，避免事务边界分裂
-    answer = Answer(
+    answer = create_answer(
+        session,
         conversation_id=cid,
         question_message_id=user_msg.id,
-        version=1,
-        is_current=True,
         answer_text=answer_text,
+        model_name=model_name,
         citations=[
             {
                 "chunk_id": c.get("chunk_id"),
@@ -898,21 +813,14 @@ async def _stream_agent_and_persist(
             }
             for c in citations
         ],
-        model_name=model_name,
     )
-    session.add(answer)
-    session.commit()
-    session.refresh(answer)
-
-    assistant_msg = Message(
+    assistant_msg = create_message(
+        session,
         conversation_id=cid,
         role="assistant",
         content=answer_text,
         answer_id=answer.id,
     )
-    session.add(assistant_msg)
-    session.commit()
-    session.refresh(assistant_msg)
 
     # finished：空 content + citations / message_id，前端据此收束流
     yield {

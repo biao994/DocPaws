@@ -28,8 +28,7 @@ def _create_feedback_impl(
     rating: str,
     comment: str | None = None,
 ) -> Feedback:
-    from docpaws.infra.repos.feedback_repo import get_answer_by_id
-    from docpaws.infra.repos.conversation_repo import get_conversation_by_id
+    from docpaws.infra.repos.conversation_repo import get_answer_by_id, get_conversation_by_id
 
     answer = get_answer_by_id(session, answer_id)
     if not answer:
@@ -56,11 +55,9 @@ def _create_feedback_impl(
     if rating not in ("like", "dislike"):
         raise AppError(error_code=ErrorCode.VALIDATION_ERROR, message="rating 必须是 like 或 dislike", status_code=400)
 
-    fb = Feedback(answer_id=answer_id, user_id=user_id, rating=rating, comment=comment)
-    session.add(fb)
-    session.commit()
-    session.refresh(fb)
-    return fb
+    from docpaws.infra.repos.feedback_repo import create_feedback as _create
+
+    return _create(session, answer_id=answer_id, user_id=user_id, rating=rating, comment=comment)
 
 class FeedbackService:
     def __init__(self, session: Session):

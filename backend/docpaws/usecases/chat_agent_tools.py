@@ -88,7 +88,8 @@ def build_agent_system_prompt(ctx: AgentToolContext) -> str:
 
 def _merge_tool_citations(ctx: AgentToolContext, docs, session: Session) -> None:
     """多次工具调用时合并引用（按 chunk_id 去重），避免只留下最后一次检索。"""
-    from docpaws.usecases.chat_service import get_citations_from_docs, hit_chunks_from_docs
+    from docpaws.usecases.chat_service import hit_chunks_from_docs
+    from docpaws.usecases.citations import get_citations_from_docs
 
     new_cites = get_citations_from_docs(docs, session)
     seen = {c.get("chunk_id") for c in ctx.last_citations if c.get("chunk_id")}

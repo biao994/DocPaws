@@ -4,7 +4,6 @@
 核心逻辑：文件落盘 -> 去重 -> 创建 Document/KbFile -> 合并为 KB 级 IndexJob -> 按需触发后台索引。
 """
 import os
-import uuid
 from typing import Optional
 
 from fastapi import UploadFile
@@ -13,8 +12,19 @@ from sqlmodel import Session
 from docpaws.api.response import ErrorCode
 from docpaws.domain.datetime_utils import utc_now
 from docpaws.api.schemas.documents import DocumentData, DocumentDeleteData, UploadData
-from docpaws.domain.models.document import Document, FileObject, KbFile
+from docpaws.domain.models.document import Document, FileObject
 from docpaws.errors import AppError
+from docpaws.infra.repos.document_repo import (
+    build_file_object,
+    create_document,
+    create_kb_file,
+    get_document_by_id,
+    get_file_object_by_id,
+    get_kb_file_by_id,
+    save_document,
+    save_file_object,
+    save_kb_file,
+)
 from docpaws.infra.storage.local_fs import storage
 from docpaws.infra.storage.s3_minio import delete_object, head_meta, head_object, upload_file
 from docpaws.settings import settings
@@ -113,7 +123,7 @@ def _ensure_file_object_uploaded(
 
     upload_file(temp_path, key, content_type=content_type)
     file_object.size_bytes = size_bytes
-    session.add(file_object)
+    save_file_object(session, file_object)
 
 
 def _folder_and_filename_from_relative(rel: str) -> tuple[Optional[str], str]:
@@ -210,14 +220,7 @@ async def _ingest_one_pdf_create_no_commit(
                 )
                 temp_path = ""
         else:
-            file_object = FileObject(
-                id=uuid.uuid4().hex,
-                storage_provider="minio",
-                object_key="",
-                sha256=sha256_hash,
-                size_bytes=size,
-                file_type="pdf",
-            )
+            file_object = build_file_object(sha256=sha256_hash, size_bytes=size, object_key="")
             object_key = _build_object_key(
                 user_id=user_id,
                 kb_id=kb_id,
@@ -227,27 +230,23 @@ async def _ingest_one_pdf_create_no_commit(
             upload_file(temp_path, object_key, content_type=file.content_type or "application/pdf")
             file_object.object_key = object_key
             temp_path = ""
-            session.add(file_object)
+            save_file_object(session, file_object)
 
-        kb_file = KbFile(
+        kb_file = create_kb_file(
+            session,
             kb_id=kb_id,
             file_object_id=file_object.id,
             original_filename=raw_filename,
             uploaded_by=user_id,
-            status="active",
         )
-        session.add(kb_file)
-
-        document = Document(
+        document = create_document(
+            session,
             kb_id=kb_id,
             kb_file_id=kb_file.id,
             title=os.path.splitext(normalized)[0],
-            status="draft",
-            version=1,
             folder_id=folder_id,
             folder_path=folder_path,
         )
-        session.add(document)
         session.flush()
 
         return {
@@ -409,14 +408,7 @@ async def upload_document(
                 )
                 temp_path = ""
         else:
-            file_object = FileObject(
-                id=uuid.uuid4().hex,
-                storage_provider="minio",
-                object_key="",
-                sha256=sha256_hash,
-                size_bytes=size,
-                file_type="pdf",
-            )
+            file_object = build_file_object(sha256=sha256_hash, size_bytes=size, object_key="")
             object_key = _build_object_key(
                 user_id=user_id,
                 kb_id=kb_id,
@@ -426,7 +418,7 @@ async def upload_document(
             upload_file(temp_path, object_key, content_type=file.content_type or "application/pdf")
             file_object.object_key = object_key
             temp_path = ""
-            session.add(file_object)
+            save_file_object(session, file_object)
 
         if on_conflict == "replace":
             return _handle_replace(
@@ -442,25 +434,21 @@ async def upload_document(
                 auto_renamed,
             )
 
-        kb_file = KbFile(
+        kb_file = create_kb_file(
+            session,
             kb_id=kb_id,
             file_object_id=file_object.id,
             original_filename=raw_filename,
             uploaded_by=user_id,
-            status="active",
         )
-        session.add(kb_file)
-
-        document = Document(
+        document = create_document(
+            session,
             kb_id=kb_id,
             kb_file_id=kb_file.id,
             title=os.path.splitext(normalized)[0],
-            status="draft",
-            version=1,
             folder_id=folder_id,
             folder_path=folder_path,
         )
-        session.add(document)
 
         if idempotency_key:
             from docpaws.infra.repos.index_repo import get_index_job_by_idempotency_key
@@ -505,7 +493,7 @@ def delete_document(session: Session, document_id: str) -> dict:
     from docpaws.infra.repos.document_repo import delete_document_cascade
     from docpaws.infra.repos.index_repo import ensure_kb_index_job
 
-    doc = session.get(Document, document_id)
+    doc = get_document_by_id(session, document_id)
     if not doc:
         return DocumentDeleteData(
             status="deleted",
@@ -557,13 +545,13 @@ def _handle_replace(
     """替换模式处理逻辑"""
     from docpaws.infra.repos.document_repo import unlink_file_object_if_unused
 
-    document = session.get(Document, rid)
+    document = get_document_by_id(session, rid)
     if not document or document.kb_id != kb_id:
         raise AppError(error_code=ErrorCode.DOCUMENT_NOT_FOUND, message="文档不存在或已被删除", status_code=404)
     if not document.kb_file_id:
         raise AppError(error_code=ErrorCode.VALIDATION_ERROR, message="该文档无文件记录，无法替换上传", status_code=400)
 
-    kb_file = session.get(KbFile, document.kb_file_id)
+    kb_file = get_kb_file_by_id(session, document.kb_file_id)
     if not kb_file:
         raise AppError(error_code=ErrorCode.VALIDATION_ERROR, message="文件记录不存在", status_code=400)
 
@@ -574,7 +562,7 @@ def _handle_replace(
         if normalized_filename != (kb_file.original_filename or ""):
             kb_file.original_filename = normalized_filename
             kb_file.updated_at = utc_now()
-            session.add(kb_file)
+            save_kb_file(session, kb_file)
         from docpaws.infra.repos.index_repo import ensure_kb_index_job, get_latest_index_job_for_kb
 
         latest = get_latest_index_job_for_kb(session, kb_id)
@@ -603,14 +591,14 @@ def _handle_replace(
     kb_file.file_object_id = file_object.id
     kb_file.original_filename = normalized_filename
     kb_file.updated_at = utc_now()
-    session.add(kb_file)
+    save_kb_file(session, kb_file)
 
     physical_drop = unlink_file_object_if_unused(session, old_fo_id)
 
     document.version += 1
     document.status = "draft"
     document.updated_at = utc_now()
-    session.add(document)
+    save_document(session, document)
 
     job_key = idempotency_key or f"{document.id}:v{document.version}"
     from docpaws.infra.repos.index_repo import get_index_job_by_idempotency_key
@@ -702,15 +690,15 @@ def update_document_title(session: Session, *, document_id: str, title: str) -> 
     doc.title = base_title
     doc.updated_at = utc_now()
     if doc.kb_file_id:
-        kb_file = session.get(KbFile, doc.kb_file_id)
+        kb_file = get_kb_file_by_id(session, doc.kb_file_id)
         if kb_file:
             ext = ".pdf"
             if kb_file.original_filename and "." in kb_file.original_filename:
                 ext = os.path.splitext(kb_file.original_filename)[1] or ".pdf"
             kb_file.original_filename = f"{base_title}{ext}"
             kb_file.updated_at = utc_now()
-            session.add(kb_file)
-    session.add(doc)
+            save_kb_file(session, kb_file)
+    save_document(session, doc)
     session.commit()
     session.refresh(doc)
     return _to_doc_data(doc)
@@ -817,7 +805,7 @@ class DocumentService:
                 status_code=404,
             )
 
-        kb_file = self.session.get(KbFile, doc.kb_file_id)
+        kb_file = get_kb_file_by_id(self.session, doc.kb_file_id)
         if not kb_file or not kb_file.file_object_id:
             raise AppError(
                 error_code=ErrorCode.FILE_NOT_FOUND,
@@ -825,7 +813,7 @@ class DocumentService:
                 status_code=404,
             )
 
-        file_obj = self.session.get(FileObject, kb_file.file_object_id)
+        file_obj = get_file_object_by_id(self.session, kb_file.file_object_id)
         if not file_obj or not file_obj.object_key:
             raise AppError(
                 error_code=ErrorCode.FILE_NOT_FOUND,

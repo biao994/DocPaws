@@ -2,14 +2,141 @@
 文档 Repo（infra 实现）：所有文档/文件对象/KbFile/Chunk 查询与持久化细节
 """
 
+import uuid
+
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from docpaws.domain.datetime_utils import utc_now
 from docpaws.domain.models.document import Document, FileObject, KbFile, Chunk
 
 
 def get_document_by_id(session: Session, doc_id: str) -> Document | None:
     return session.get(Document, doc_id)
+
+
+def get_chunk_by_id(session: Session, chunk_id: str) -> Chunk | None:
+    return session.get(Chunk, chunk_id)
+
+
+def get_kb_file_by_id(session: Session, kb_file_id: str) -> KbFile | None:
+    return session.get(KbFile, kb_file_id)
+
+
+def get_file_object_by_id(session: Session, file_object_id: str) -> FileObject | None:
+    return session.get(FileObject, file_object_id)
+
+
+def build_file_object(
+    *,
+    sha256: str,
+    size_bytes: int,
+    object_key: str = "",
+    file_type: str = "pdf",
+    storage_provider: str = "minio",
+    file_object_id: str | None = None,
+) -> FileObject:
+    """构造 FileObject，不写 session（便于先上传对象存储再落库）。"""
+    return FileObject(
+        id=file_object_id or uuid.uuid4().hex,
+        storage_provider=storage_provider,
+        object_key=object_key,
+        sha256=sha256,
+        size_bytes=size_bytes,
+        file_type=file_type,
+    )
+
+
+def create_file_object(
+    session: Session,
+    *,
+    sha256: str,
+    size_bytes: int,
+    object_key: str = "",
+    file_type: str = "pdf",
+    storage_provider: str = "minio",
+    file_object_id: str | None = None,
+) -> FileObject:
+    fo = build_file_object(
+        sha256=sha256,
+        size_bytes=size_bytes,
+        object_key=object_key,
+        file_type=file_type,
+        storage_provider=storage_provider,
+        file_object_id=file_object_id,
+    )
+    session.add(fo)
+    return fo
+
+
+def save_file_object(session: Session, file_object: FileObject) -> None:
+    session.add(file_object)
+
+
+def create_kb_file(
+    session: Session,
+    *,
+    kb_id: str,
+    file_object_id: str,
+    original_filename: str,
+    uploaded_by: str,
+    status: str = "active",
+) -> KbFile:
+    kb_file = KbFile(
+        kb_id=kb_id,
+        file_object_id=file_object_id,
+        original_filename=original_filename,
+        uploaded_by=uploaded_by,
+        status=status,
+    )
+    session.add(kb_file)
+    return kb_file
+
+
+def create_document(
+    session: Session,
+    *,
+    kb_id: str,
+    kb_file_id: str,
+    title: str,
+    status: str = "draft",
+    version: int = 1,
+    folder_id: str | None = None,
+    folder_path: str | None = None,
+) -> Document:
+    document = Document(
+        kb_id=kb_id,
+        kb_file_id=kb_file_id,
+        title=title,
+        status=status,
+        version=version,
+        folder_id=folder_id,
+        folder_path=folder_path,
+    )
+    session.add(document)
+    return document
+
+
+def save_kb_file(session: Session, kb_file: KbFile) -> None:
+    session.add(kb_file)
+
+
+def save_document(session: Session, document: Document) -> None:
+    session.add(document)
+
+
+def list_documents_with_folder(session: Session, kb_id: str) -> list[Document]:
+    return list(
+        session.exec(
+            select(Document).where(Document.kb_id == kb_id, Document.folder_id.is_not(None))
+        ).all()
+    )
+
+
+def set_document_thumbnail_key(session: Session, document: Document, thumbnail_key: str) -> None:
+    document.thumbnail_key = thumbnail_key
+    document.updated_at = utc_now()
+    session.add(document)
 
 
 def list_documents(

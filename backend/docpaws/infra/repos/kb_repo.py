@@ -11,6 +11,24 @@ def get_kb_by_id(session: Session, kb_id: str) -> KnowledgeBase | None:
     return session.get(KnowledgeBase, kb_id)
 
 
+def create_kb(
+    session: Session,
+    *,
+    name: str,
+    owner_user_id: str,
+    description: str | None = None,
+) -> KnowledgeBase:
+    kb = KnowledgeBase(
+        name=name,
+        description=description,
+        owner_user_id=owner_user_id,
+    )
+    session.add(kb)
+    session.commit()
+    session.refresh(kb)
+    return kb
+
+
 def list_kbs(
     session: Session,
     owner_user_id: str | None = None,

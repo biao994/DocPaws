@@ -14,14 +14,9 @@ def _create_kb_impl(
     description: str | None = None,
     owner_user_id: str,
 ) -> dict:
-    kb = KnowledgeBase(
-        name=name,
-        description=description,
-        owner_user_id=owner_user_id,
-    )
-    session.add(kb)
-    session.commit()
-    session.refresh(kb)
+    from docpaws.infra.repos.kb_repo import create_kb as _create
+
+    kb = _create(session, name=name, description=description, owner_user_id=owner_user_id)
     return _to_data(kb)
 
 

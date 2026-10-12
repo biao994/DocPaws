@@ -51,12 +51,12 @@ def _to_conversation_data(c) -> dict:
 
 def _to_message_data(session: Session, m) -> dict:
     from docpaws.api.schemas.conversations import CitationData, MessageData
-    from docpaws.domain.models.index import Answer
-    from docpaws.usecases.chat_service import hydrate_citations_from_stored
+    from docpaws.infra.repos.conversation_repo import get_answer_by_id
+    from docpaws.usecases.citations import hydrate_citations_from_stored
 
     citations: list = []
     if m.answer_id:
-        answer = session.get(Answer, m.answer_id)
+        answer = get_answer_by_id(session, m.answer_id)
         if answer:
             citations = hydrate_citations_from_stored(session, answer.citations)
 

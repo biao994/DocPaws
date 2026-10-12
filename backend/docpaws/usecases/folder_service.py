@@ -8,7 +8,7 @@ from sqlmodel import Session
 from docpaws.api.response import ErrorCode
 from docpaws.domain.datetime_utils import utc_now
 from docpaws.errors import AppError
-from docpaws.domain.models.document import Document
+from docpaws.infra.repos.document_repo import list_documents_with_folder, save_document
 from docpaws.infra.repos.folder_repo import (
     count_child_folders,
     count_documents_in_folder,
@@ -65,19 +65,12 @@ def resolve_folder_for_document(
 
 def refresh_kb_document_folder_paths(session: Session, kb_id: str) -> None:
     """按 folder_id 重算该 KB 下所有文档的 folder_path 缓存"""
-    from sqlmodel import select
-
-    docs = list(
-        session.exec(
-            select(Document).where(Document.kb_id == kb_id, Document.folder_id.is_not(None))
-        ).all()
-    )
-    for doc in docs:
+    for doc in list_documents_with_folder(session, kb_id):
         if not doc.folder_id:
             continue
         doc.folder_path = folder_materialized_path(session, doc.folder_id) or None
         doc.updated_at = utc_now()
-        session.add(doc)
+        save_document(session, doc)
 
 
 class FolderService:
