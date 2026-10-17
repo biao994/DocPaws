@@ -253,3 +253,40 @@ def add_retrieval_run(
     session.add(run)
     return run
 
+
+def persist_assistant_answer_and_message(
+    session: Session,
+    *,
+    conversation_id: str,
+    question_message_id: str,
+    answer_text: str,
+    model_name: str,
+    citations: list | None = None,
+    version: int = 1,
+    is_current: bool = True,
+) -> tuple[Answer, Message]:
+    """Answer + 助手 Message 同事务落库（一次 commit）；挂着的 RetrievalRun 一并提交。"""
+    answer = create_answer(
+        session,
+        conversation_id=conversation_id,
+        question_message_id=question_message_id,
+        answer_text=answer_text,
+        model_name=model_name,
+        citations=citations,
+        version=version,
+        is_current=is_current,
+        commit=False,
+    )
+    assistant_msg = create_message(
+        session,
+        conversation_id=conversation_id,
+        role="assistant",
+        content=answer_text,
+        answer_id=answer.id,
+        commit=False,
+    )
+    session.commit()
+    session.refresh(answer)
+    session.refresh(assistant_msg)
+    return answer, assistant_msg
+

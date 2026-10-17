@@ -37,8 +37,8 @@ from docpaws.infra.repos.conversation_repo import (
     create_conversation,
     get_recent_history_text,
     create_message,
-    create_answer,
     add_retrieval_run,
+    persist_assistant_answer_and_message,
 )
 from docpaws.usecases.citations import (  # noqa: F401 — 兼容 tests 旧 import 路径
     get_citations_from_docs,
@@ -66,7 +66,7 @@ def _persist_assistant_reply(
     model_name: str,
 ) -> tuple[Answer, Message]:
     """保存助手回复（含失败提示），便于会话历史回放。"""
-    answer = create_answer(
+    return persist_assistant_answer_and_message(
         session,
         conversation_id=conversation_id,
         question_message_id=question_message_id,
@@ -74,14 +74,6 @@ def _persist_assistant_reply(
         model_name=model_name,
         citations=[],
     )
-    assistant_msg = create_message(
-        session,
-        conversation_id=conversation_id,
-        role="assistant",
-        content=answer_text,
-        answer_id=answer.id,
-    )
-    return answer, assistant_msg
 
 
 def _finished_answer_chunk(
@@ -797,7 +789,7 @@ async def _stream_agent_and_persist(
             hit_chunks=tool_ctx.last_hit_chunks,
         )
 
-    answer = create_answer(
+    answer, assistant_msg = persist_assistant_answer_and_message(
         session,
         conversation_id=cid,
         question_message_id=user_msg.id,
@@ -813,13 +805,6 @@ async def _stream_agent_and_persist(
             }
             for c in citations
         ],
-    )
-    assistant_msg = create_message(
-        session,
-        conversation_id=cid,
-        role="assistant",
-        content=answer_text,
-        answer_id=answer.id,
     )
 
     # finished：空 content + citations / message_id，前端据此收束流
