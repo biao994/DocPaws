@@ -26,7 +26,6 @@ def _pinned_docs():
 
 def _make_ctx(db_session, *, question: str, docs: list):
     return AgentToolContext(
-        session=db_session,
         kb_id="kb-preflight",
         scope_type=SCOPE_KB,
         scope_id=None,

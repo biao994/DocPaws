@@ -19,6 +19,7 @@ from typing import AsyncGenerator
 import redis
 from sqlmodel import Session
 
+from docpaws.infra.db import session as db_session
 from docpaws.api.response import ErrorCode, get_status_code, ERROR_CODE_TO_HINT
 from docpaws.api.authz import require_kb_owned
 from docpaws.errors import AppError
@@ -426,7 +427,6 @@ def _usage_error_code_from_event(payload: dict) -> str | None:
 
 
 async def _stream_answer_impl(
-    session: Session,
     *,
     kb_id: str,
     question: str,
@@ -445,7 +445,6 @@ async def _stream_answer_impl(
     usage_error: str | None = None
     try:
         async for payload in _stream_answer_events(
-            session,
             kb_id=kb_id,
             question=question,
             conversation_id=conversation_id,
@@ -465,20 +464,20 @@ async def _stream_answer_impl(
         from docpaws.infra.repos.usage_repo import record_chat_stream_usage
 
         latency_ms = int((time.perf_counter() - t0) * 1000)
-        record_chat_stream_usage(
-            session,
-            request_id=request_id,
-            kb_id=kb_id,
-            user_id=user_id,
-            chat_mode=chat_mode,
-            model_name=model_name,
-            latency_ms=latency_ms,
-            error_code=usage_error,
-        )
+        with db_session.session_scope() as session:
+            record_chat_stream_usage(
+                session,
+                request_id=request_id,
+                kb_id=kb_id,
+                user_id=user_id,
+                chat_mode=chat_mode,
+                model_name=model_name,
+                latency_ms=latency_ms,
+                error_code=usage_error,
+            )
 
 
 async def _stream_answer_with_concurrent_release(
-    session: Session,
     *,
     kb_id: str,
     question: str,
@@ -493,7 +492,6 @@ async def _stream_answer_with_concurrent_release(
     """跑完问答后在 finally 释放并发槽（正常结束 / 异常 / 断开均走此路径）。"""
     try:
         async for payload in _stream_answer_impl(
-            session,
             kb_id=kb_id,
             question=question,
             conversation_id=conversation_id,
@@ -588,7 +586,7 @@ def _ensure_kb_ready_or_reject(
     *,
     kb_id: str,
     cid: str,
-    user_msg: Message,
+    question_message_id: str,
     scope_type: str,
     scope_id: str | None,
     model_name: str,
@@ -613,7 +611,7 @@ def _ensure_kb_ready_or_reject(
         return _finished_answer_chunk(
             session,
             conversation_id=cid,
-            question_message_id=user_msg.id,
+            question_message_id=question_message_id,
             answer_text=kb_empty_hint,
             model_name=model_name,
             request_id=request_id,
@@ -623,7 +621,7 @@ def _ensure_kb_ready_or_reject(
         return _finished_answer_chunk(
             session,
             conversation_id=cid,
-            question_message_id=user_msg.id,
+            question_message_id=question_message_id,
             answer_text=kb_empty_hint,
             model_name=model_name,
             request_id=request_id,
@@ -634,7 +632,7 @@ def _ensure_kb_ready_or_reject(
         return _finished_answer_chunk(
             session,
             conversation_id=cid,
-            question_message_id=user_msg.id,
+            question_message_id=question_message_id,
             answer_text=ERROR_CODE_TO_HINT.get(
                 ErrorCode.INDEX_NOT_READY, "文档正在处理中，请稍后再试"
             ),
@@ -655,7 +653,7 @@ def _ensure_kb_ready_or_reject(
         return _finished_answer_chunk(
             session,
             conversation_id=cid,
-            question_message_id=user_msg.id,
+            question_message_id=question_message_id,
             answer_text=empty_msg,
             model_name=model_name,
             request_id=request_id,
@@ -672,7 +670,7 @@ def _ensure_kb_ready_or_reject(
         return _finished_answer_chunk(
             session,
             conversation_id=cid,
-            question_message_id=user_msg.id,
+            question_message_id=question_message_id,
             answer_text=ERROR_CODE_TO_HINT.get(
                 ErrorCode.INDEX_FILE_NOT_FOUND, "索引文件不存在"
             ),
@@ -684,11 +682,10 @@ def _ensure_kb_ready_or_reject(
 
 
 async def _stream_agent_and_persist(
-    session: Session,
     *,
     kb_id: str,
     cid: str,
-    user_msg: Message,
+    question_message_id: str,
     question: str,
     history_text: str,
     scope_type: str,
@@ -705,13 +702,12 @@ async def _stream_agent_and_persist(
     preflight_docs: list | None = None,
 ) -> AsyncGenerator[dict, None]:
     """
-    正式出答闭环：Agent 流式生成 → 检索审计 → 落库 → finished 事件。
+    正式出答闭环：Agent 流式生成（不占 DB）→ 短 Session 审计落库 → finished。
     """
     from docpaws.usecases.chat_agent_tools import AgentToolContext
     from docpaws.usecases.chat_agent_runner import run_agent_stream
 
     tool_ctx = AgentToolContext(
-        session=session,
         kb_id=kb_id,
         scope_type=scope_type,
         scope_id=scope_id,
@@ -762,66 +758,66 @@ async def _stream_agent_and_persist(
                 }
     except Exception as e:
         logger.exception(f"agent stream failed: {e}")
-        yield _finished_answer_chunk(
-            session,
-            conversation_id=cid,
-            question_message_id=user_msg.id,
-            answer_text=ERROR_CODE_TO_HINT.get(
-                ErrorCode.RETRIEVAL_FAILED, "对话服务暂时不可用"
-            ),
-            model_name=model_name,
-            request_id=request_id,
-        )
+        with db_session.session_scope() as session:
+            yield _finished_answer_chunk(
+                session,
+                conversation_id=cid,
+                question_message_id=question_message_id,
+                answer_text=ERROR_CODE_TO_HINT.get(
+                    ErrorCode.RETRIEVAL_FAILED, "对话服务暂时不可用"
+                ),
+                model_name=model_name,
+                request_id=request_id,
+            )
         return
 
     answer_text = "".join(full)
     citations = tool_ctx.last_citations
 
-    # 审计：记录本次 Agent 实际命中的 chunk（评测/追溯用）；与 Answer 同事务
-    if tool_ctx.last_hit_chunks:
-        add_retrieval_run(
+    with db_session.session_scope() as session:
+        # 审计：记录本次 Agent 实际命中的 chunk（评测/追溯用）；与 Answer 同事务
+        if tool_ctx.last_hit_chunks:
+            add_retrieval_run(
+                session,
+                kb_id=kb_id,
+                conversation_id=cid,
+                question_message_id=question_message_id,
+                query_text=question,
+                top_k=search_k,
+                hit_chunks=tool_ctx.last_hit_chunks,
+            )
+
+        answer, assistant_msg = persist_assistant_answer_and_message(
             session,
-            kb_id=kb_id,
             conversation_id=cid,
-            question_message_id=user_msg.id,
-            query_text=question,
-            top_k=search_k,
-            hit_chunks=tool_ctx.last_hit_chunks,
+            question_message_id=question_message_id,
+            answer_text=answer_text,
+            model_name=model_name,
+            citations=[
+                {
+                    "chunk_id": c.get("chunk_id"),
+                    "document_id": c.get("document_id"),
+                    "page_no": c.get("page_no"),
+                    "snippet": c.get("snippet"),
+                    "source": c.get("source"),
+                }
+                for c in citations
+            ],
         )
-
-    answer, assistant_msg = persist_assistant_answer_and_message(
-        session,
-        conversation_id=cid,
-        question_message_id=user_msg.id,
-        answer_text=answer_text,
-        model_name=model_name,
-        citations=[
-            {
-                "chunk_id": c.get("chunk_id"),
-                "document_id": c.get("document_id"),
-                "page_no": c.get("page_no"),
-                "snippet": c.get("snippet"),
-                "source": c.get("source"),
-            }
-            for c in citations
-        ],
-    )
-
-    # finished：空 content + citations / message_id，前端据此收束流
-    yield {
-        "type": "answer_chunk",
-        "content": "",
-        "request_id": request_id,
-        "finished": True,
-        "conversation_id": cid,
-        "message_id": assistant_msg.id,
-        "answer_id": answer.id,
-        "citations": citations,
-    }
+        finished = {
+            "type": "answer_chunk",
+            "content": "",
+            "request_id": request_id,
+            "finished": True,
+            "conversation_id": cid,
+            "message_id": assistant_msg.id,
+            "answer_id": answer.id,
+            "citations": citations,
+        }
+    yield finished
 
 
 async def _stream_answer_events(
-    session: Session,
     *,
     kb_id: str,
     question: str,
@@ -837,60 +833,68 @@ async def _stream_answer_events(
     """
     SSE 流式问答编排（由 _stream_answer_impl / ChatService 转发）。
 
-    主链路：准备会话 → meta → 就绪检查 →（可选）思考前奏 → 检索预检 → Agent 出答落库。
-    各阶段通过 yield 推送 SSE；失败可提前 return。
+    主链路：短 Session 准备 → 释放连接 →（可选）思考前奏 → Agent 出答 → 短 Session 落库。
     """
     search_k = int(get_default_config().get("search_k", 5) or 5)
 
-    # --- 准备：归属 / 会话 / scope / 用户消息 ---
-    prepared = _prepare_conversation_and_scope(
-        session,
-        kb_id=kb_id,
-        question=question,
-        conversation_id=conversation_id,
-        user_id=user_id,
-        document_id=document_id,
-        folder_id=folder_id,
-    )
-    if isinstance(prepared, dict):
-        yield prepared
-        return
-    cid, user_msg, scope_type, scope_id = prepared
-
-    # --- meta：尽早把 conversation_id 交给前端 ---
-    yield {
-        "type": "meta",
-        "request_id": request_id,
-        "conversation_id": cid,
-        "question_message_id": user_msg.id,
-    }
-
-    # --- 就绪：空库 / 空 scope / 装向量库；失败则拒答并结束 ---
-    ready = _ensure_kb_ready_or_reject(
-        session,
-        kb_id=kb_id,
-        cid=cid,
-        user_msg=user_msg,
-        scope_type=scope_type,
-        scope_id=scope_id,
-        model_name=model_name,
-        request_id=request_id,
-    )
-    if isinstance(ready, dict):
-        yield ready
-        return
-    vectorstore, metadata_filter, scope_token, artifact_id = ready
-
-    history_text = get_recent_history_text(session, cid, limit=10)
-    scope_label = scope_prompt_label(
-        session, kb_id=kb_id, scope_type=scope_type, scope_id=scope_id
+    from docpaws.usecases.chat_scope import (
+        retrieval_cache_scope_token,
+        retrieval_filter_for_question,
     )
 
-    # --- 思考前奏：仅 deep；fast 跳过 ---
-    if chat_mode == "deep":
-        scope_doc_count = count_documents_in_scope(
+    # --- 短 Session：准备 / 就绪 / 预检；出 with 后连接归还 ---
+    with db_session.session_scope() as session:
+        prepared = _prepare_conversation_and_scope(
+            session,
+            kb_id=kb_id,
+            question=question,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            document_id=document_id,
+            folder_id=folder_id,
+        )
+        if isinstance(prepared, dict):
+            yield prepared
+            return
+        cid, user_msg, scope_type, scope_id = prepared
+        question_message_id = user_msg.id
+
+        yield {
+            "type": "meta",
+            "request_id": request_id,
+            "conversation_id": cid,
+            "question_message_id": question_message_id,
+        }
+
+        ready = _ensure_kb_ready_or_reject(
+            session,
+            kb_id=kb_id,
+            cid=cid,
+            question_message_id=question_message_id,
+            scope_type=scope_type,
+            scope_id=scope_id,
+            model_name=model_name,
+            request_id=request_id,
+        )
+        if isinstance(ready, dict):
+            yield ready
+            return
+        vectorstore, metadata_filter, scope_token, artifact_id = ready
+
+        history_text = get_recent_history_text(session, cid, limit=10)
+        scope_label = scope_prompt_label(
             session, kb_id=kb_id, scope_type=scope_type, scope_id=scope_id
         )
+        scope_doc_count = (
+            count_documents_in_scope(
+                session, kb_id=kb_id, scope_type=scope_type, scope_id=scope_id
+            )
+            if chat_mode == "deep"
+            else 0
+        )
+
+    # --- 无 Session：思考前奏（须在预检拒答之前，保持 deep 事件顺序）---
+    if chat_mode == "deep":
         async for think_delta in stream_thinking_prelude(
             model_name=model_name,
             question=question,
@@ -906,25 +910,18 @@ async def _stream_answer_events(
                     "finished": False,
                 }
 
-    from docpaws.usecases.chat_scope import (
-        retrieval_cache_scope_token,
-        retrieval_filter_for_question,
-    )
-
-    # --- 检索预检：内容题无命中则拒答；元问题（统计/列表）跳过 ---
-    # 命中后把 docs 交给 Agent 工具复用，避免内容题二次检索
+    # --- 短 Session：检索预检（内容题无命中则拒答）---
     preflight_docs: list = []
     if not should_skip_retrieval_preflight(question):
-        # 问题点名某文档标题时，在 scope 内再收窄到单文件
-        pre_meta, pre_named_doc = retrieval_filter_for_question(
-            session,
-            kb_id=kb_id,
-            scope_type=scope_type,
-            scope_id=scope_id,
-            base_filter=metadata_filter,
-            text=question,
-        )
-        # 同步检索（FAISS / Redis / httpx rerank / time.sleep）丢到线程，避免堵事件循环
+        with db_session.session_scope() as session:
+            pre_meta, pre_named_doc = retrieval_filter_for_question(
+                session,
+                kb_id=kb_id,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                base_filter=metadata_filter,
+                text=question,
+            )
         preflight_docs = await asyncio.to_thread(
             retrieve_scoped_docs_cached,
             kb_id=kb_id,
@@ -937,22 +934,21 @@ async def _stream_answer_events(
             scope_token=retrieval_cache_scope_token(scope_token, pre_named_doc),
         )
         if not preflight_docs:
-            yield _finished_answer_chunk(
-                session,
-                conversation_id=cid,
-                question_message_id=user_msg.id,
-                answer_text=INSUFFICIENT_RETRIEVAL_MSG,
-                model_name=model_name,
-                request_id=request_id,
-            )
+            with db_session.session_scope() as session:
+                yield _finished_answer_chunk(
+                    session,
+                    conversation_id=cid,
+                    question_message_id=question_message_id,
+                    answer_text=INSUFFICIENT_RETRIEVAL_MSG,
+                    model_name=model_name,
+                    request_id=request_id,
+                )
             return
 
-    # --- 正式出答：Agent 流式 → 审计 → 落库 → finished ---
     async for payload in _stream_agent_and_persist(
-        session,
         kb_id=kb_id,
         cid=cid,
-        user_msg=user_msg,
+        question_message_id=question_message_id,
         question=question,
         history_text=history_text,
         scope_type=scope_type,
@@ -1000,8 +996,7 @@ def _acquire_chat_gates(user_id: str, request_id: str, cache_redis: redis.Redis 
 
 
 class ChatService:
-    def __init__(self, session: Session, cache_redis: redis.Redis | None = None):
-        self.session = session
+    def __init__(self, cache_redis: redis.Redis | None = None):
         self.cache_redis = cache_redis
 
     def stream_answer(
@@ -1019,7 +1014,6 @@ class ChatService:
         # 同步拿闸，避免半截 SSE；失败抛 AppError。
         _acquire_chat_gates(user_id, request_id, self.cache_redis)
         return _stream_answer_with_concurrent_release(
-            self.session,
             kb_id=kb_id,
             question=question,
             conversation_id=conversation_id,

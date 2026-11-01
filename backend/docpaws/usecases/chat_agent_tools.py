@@ -13,6 +13,7 @@ import redis
 from langchain_core.tools import tool
 from sqlmodel import Session
 
+from docpaws.infra.db import session as db_session
 from docpaws.usecases.chat_scope import (
     count_documents_in_scope,
     document_title_for_id,
@@ -42,7 +43,8 @@ def is_scope_inventory_question(question: str) -> bool:
 
 @dataclass
 class AgentToolContext:
-    session: Session
+    """工具上下文：不持有长生命周期 Session，查库时短借短还。"""
+
     kb_id: str
     scope_type: str
     scope_id: str | None
@@ -62,12 +64,13 @@ class AgentToolContext:
 
 
 def build_agent_system_prompt(ctx: AgentToolContext) -> str:
-    scope_label = scope_prompt_label(
-        ctx.session,
-        kb_id=ctx.kb_id,
-        scope_type=ctx.scope_type,
-        scope_id=ctx.scope_id,
-    )
+    with db_session.session_scope() as session:
+        scope_label = scope_prompt_label(
+            session,
+            kb_id=ctx.kb_id,
+            scope_type=ctx.scope_type,
+            scope_id=ctx.scope_id,
+        )
     return f"""你是 DocPaws 文档助手。范围已锁定，不可切换知识库/文件夹：
 {scope_label}
 
@@ -109,31 +112,33 @@ def build_chat_agent_tools(ctx: AgentToolContext) -> list:
     @tool
     def count_scope_documents() -> str:
         """统计当前对话范围内有多少个文档/文件。用于「有几个文件」「多少份文档」等问题。"""
-        n = count_documents_in_scope(
-            ctx.session,
-            kb_id=ctx.kb_id,
-            scope_type=ctx.scope_type,
-            scope_id=ctx.scope_id,
-        )
-        label = scope_prompt_label(
-            ctx.session,
-            kb_id=ctx.kb_id,
-            scope_type=ctx.scope_type,
-            scope_id=ctx.scope_id,
-        )
+        with db_session.session_scope() as session:
+            n = count_documents_in_scope(
+                session,
+                kb_id=ctx.kb_id,
+                scope_type=ctx.scope_type,
+                scope_id=ctx.scope_id,
+            )
+            label = scope_prompt_label(
+                session,
+                kb_id=ctx.kb_id,
+                scope_type=ctx.scope_type,
+                scope_id=ctx.scope_id,
+            )
         return f"{label}内共有 {n} 个文档。"
 
     @tool
     def list_scope_documents(limit: int = 20) -> str:
         """列出当前范围内的文档标题。limit 为最多返回条数（默认 20）。"""
         cap = max(1, min(int(limit or 20), 50))
-        titles = list_document_titles_in_scope(
-            ctx.session,
-            kb_id=ctx.kb_id,
-            scope_type=ctx.scope_type,
-            scope_id=ctx.scope_id,
-            limit=cap,
-        )
+        with db_session.session_scope() as session:
+            titles = list_document_titles_in_scope(
+                session,
+                kb_id=ctx.kb_id,
+                scope_type=ctx.scope_type,
+                scope_id=ctx.scope_id,
+                limit=cap,
+            )
         if not titles:
             return "当前范围内没有文档。"
         lines = "\n".join(f"- {t}" for t in titles)
@@ -148,16 +153,17 @@ def build_chat_agent_tools(ctx: AgentToolContext) -> list:
         hint = (name_hint or "").strip()
         if not hint:
             return "请提供要查找的文档名称。"
-        doc_id = resolve_document_id_from_question(
-            ctx.session,
-            kb_id=ctx.kb_id,
-            scope_type=ctx.scope_type,
-            scope_id=ctx.scope_id,
-            text=hint,
-        )
-        if not doc_id:
-            return f"在当前范围内未找到名称匹配「{hint}」的文档。"
-        title = document_title_for_id(ctx.session, doc_id) or doc_id
+        with db_session.session_scope() as session:
+            doc_id = resolve_document_id_from_question(
+                session,
+                kb_id=ctx.kb_id,
+                scope_type=ctx.scope_type,
+                scope_id=ctx.scope_id,
+                text=hint,
+            )
+            if not doc_id:
+                return f"在当前范围内未找到名称匹配「{hint}」的文档。"
+            title = document_title_for_id(session, doc_id) or doc_id
         return f"已找到文档：{title}"
 
     @tool
@@ -174,14 +180,15 @@ def build_chat_agent_tools(ctx: AgentToolContext) -> list:
         if not q:
             return "问题不能为空。"
 
-        meta_filter, named_doc_id = retrieval_filter_for_question(
-            ctx.session,
-            kb_id=ctx.kb_id,
-            scope_type=ctx.scope_type,
-            scope_id=ctx.scope_id,
-            base_filter=ctx.metadata_filter,
-            text=q,
-        )
+        with db_session.session_scope() as session:
+            meta_filter, named_doc_id = retrieval_filter_for_question(
+                session,
+                kb_id=ctx.kb_id,
+                scope_type=ctx.scope_type,
+                scope_id=ctx.scope_id,
+                base_filter=ctx.metadata_filter,
+                text=q,
+            )
         # 预检同一问法：复用片段，跳过二次检索；问法变了仍检索（同步检索离场到线程）
         reuse = bool(ctx.preflight_docs) and normalize_question(q) == ctx.preflight_question
         if reuse:
@@ -201,10 +208,10 @@ def build_chat_agent_tools(ctx: AgentToolContext) -> list:
         if not docs:
             return INSUFFICIENT_RETRIEVAL_MSG
 
-        _merge_tool_citations(ctx, docs, ctx.session)
-
-        text = format_docs_for_prompt(docs)
-        target_title = document_title_for_id(ctx.session, named_doc_id)
+        with db_session.session_scope() as session:
+            _merge_tool_citations(ctx, docs, session)
+            text = format_docs_for_prompt(docs)
+            target_title = document_title_for_id(session, named_doc_id)
         if target_title:
             return f"【文档：{target_title}】\n{text}"
         return text
@@ -218,14 +225,15 @@ def build_chat_agent_tools(ctx: AgentToolContext) -> list:
         if not kw:
             return "关键词不能为空。"
 
-        meta_filter, named_doc_id = retrieval_filter_for_question(
-            ctx.session,
-            kb_id=ctx.kb_id,
-            scope_type=ctx.scope_type,
-            scope_id=ctx.scope_id,
-            base_filter=ctx.metadata_filter,
-            text=kw,
-        )
+        with db_session.session_scope() as session:
+            meta_filter, named_doc_id = retrieval_filter_for_question(
+                session,
+                kb_id=ctx.kb_id,
+                scope_type=ctx.scope_type,
+                scope_id=ctx.scope_id,
+                base_filter=ctx.metadata_filter,
+                text=kw,
+            )
         try:
             docs = await asyncio.to_thread(
                 retrieve_docs_with_retry,
@@ -241,7 +249,8 @@ def build_chat_agent_tools(ctx: AgentToolContext) -> list:
         if not docs:
             return f"未找到与「{kw}」相关的文档片段。"
 
-        _merge_tool_citations(ctx, docs, ctx.session)
+        with db_session.session_scope() as session:
+            _merge_tool_citations(ctx, docs, session)
 
         parts: list[str] = []
         for i, doc in enumerate(docs[:5], 1):

@@ -42,7 +42,6 @@ def test_count_and_list_documents_in_folder_scope(db_session):
 
 def test_agent_system_prompt_warns_against_section_as_document(db_session):
     ctx = AgentToolContext(
-        session=db_session,
         kb_id="kb-prompt",
         scope_type=SCOPE_KB,
         scope_id=None,
